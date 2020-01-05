@@ -1243,7 +1243,11 @@ void ParaNdis6_Fill620PowerCapabilities(PNDIS_PM_CAPABILITIES pPower620Caps)
     pPower620Caps->Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
     pPower620Caps->Header.Revision = NDIS_PM_CAPABILITIES_REVISION_1;
     pPower620Caps->Header.Size = NDIS_SIZEOF_NDIS_PM_CAPABILITIES_REVISION_1;
-
+#if NDIS_SUPPORT_NDIS650
+    // can be used also for 6.30, but let's keep it backward compatible
+    pPower620Caps->Header.Revision = NDIS_PM_CAPABILITIES_REVISION_2;
+    pPower620Caps->Header.Size = NDIS_SIZEOF_NDIS_PM_CAPABILITIES_REVISION_2;
+#endif
     // part of WOL support
     pPower620Caps->SupportedWoLPacketPatterns = 0;
     pPower620Caps->NumTotalWoLPatterns = 0;
