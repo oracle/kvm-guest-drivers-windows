@@ -77,27 +77,8 @@ const WCHAR c_szDevicePrefix[] = L"\\Device\\";
 
 #if DBG
 void TraceMsg ( _In_ LPWSTR szFormat, ...);
-void DumpChangeFlag (DWORD dwChangeFlag);
-void DumpBindingPath (INetCfgBindingPath* pncbp);
-void DumpComponent (INetCfgComponent *pncc);
 #else
 #define TraceMsg
-#define DumpChangeFlag( x )
-#define DumpBindingPath( x )
-#define DumpComponent( x )
 #endif
-
-HRESULT HrFindInstance (INetCfg *pnc,
-                        GUID &guidInstance,
-                        INetCfgComponent **ppnccMiniport);
-
-LONG AddToMultiSzValue( HKEY hkeyAdapterGuid,
-                        _In_ LPWSTR szMiniportGuid);
-
-LONG DeleteFromMultiSzValue( HKEY hkeyAdapterGuid,
-                             _In_ LPWSTR szMiniportGuid);
-
-LPWSTR AddDevicePrefix ( _In_ LPWSTR lpStr);
-LPWSTR RemoveDevicePrefix ( _In_ LPWSTR lpStr);
 
 #endif // COMMON_H_INCLUDED

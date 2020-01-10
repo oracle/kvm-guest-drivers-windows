@@ -29,6 +29,5 @@ library SampleNotifyLib
         [restricted] interface INetCfgComponentSetup;
         [restricted] interface INetCfgComponentNotifyBinding;
         [restricted] interface INetCfgComponentNotifyGlobal;
-        [restricted] interface INetCfgComponentPropertyUi;
     };
 };

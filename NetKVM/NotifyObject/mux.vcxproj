@@ -248,12 +248,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="adapter.cpp" />
     <ClCompile Include="common.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="implinc.cpp" />
     <ClCompile Include="notify.cpp" />
-    <ClCompile Include="virtual.cpp" />
     <Midl Include="notifyn.idl" />
     <ResourceCompile Include="notify.rc" />
   </ItemGroup>

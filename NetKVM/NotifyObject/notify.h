@@ -26,8 +26,6 @@ extern CComModule _Module;  // required by atlcom.h
 #include <setupapi.h>
 
 #include <notifyn.h>
-#include "list.h"
-#include "adapter.h"
 #include "resource.h"
 #include "common.h"
 
@@ -58,7 +56,6 @@ class CMuxNotify :
 
                public INetCfgComponentControl,
                public INetCfgComponentSetup,
-               public INetCfgComponentPropertyUi,
                public INetCfgComponentNotifyBinding,
                public INetCfgComponentNotifyGlobal
 {
@@ -88,7 +85,6 @@ class CMuxNotify :
       BEGIN_COM_MAP(CMuxNotify)
          COM_INTERFACE_ENTRY(INetCfgComponentControl)
          COM_INTERFACE_ENTRY(INetCfgComponentSetup)
-         COM_INTERFACE_ENTRY(INetCfgComponentPropertyUi)
          COM_INTERFACE_ENTRY(INetCfgComponentNotifyBinding)
          COM_INTERFACE_ENTRY(INetCfgComponentNotifyGlobal)
       END_COM_MAP()
@@ -136,30 +132,6 @@ class CMuxNotify :
       STDMETHOD (Removing) ();
 
       //
-      // INetCfgComponentPropertyUi
-      //
-
-        STDMETHOD (QueryPropertyUi) (
-                   IN IUnknown* pUnk);
-
-        STDMETHOD (SetContext) (
-                   IN IUnknown* pUnk);
-
-        STDMETHOD (MergePropPages) (
-                   IN OUT DWORD* pdwDefPages,
-                   OUT LPBYTE* pahpspPrivate,
-                   OUT UINT* pcPrivate,
-                   IN HWND hwndParent,
-                   OUT PCWSTR* pszStartPage);
-
-        STDMETHOD (ValidateProperties) (
-                   HWND hwndSheet);
-
-        STDMETHOD (CancelProperties) ();
-
-        STDMETHOD (ApplyProperties) ();
-
-      //
       // INetCfgNotifyBinding
       //
 
@@ -195,53 +167,9 @@ class CMuxNotify :
   //
 
   private:
-
-     //
-     // Private member variables.
-     //
-
-     INetCfgComponent  *m_pncc;  // Protocol's Net Config component
-     INetCfg           *m_pnc;
-     ConfigAction      m_eApplyAction;
-     IUnknown*         m_pUnkContext;
-
-     //
-     // List of physical adapters currently installed.
-     //
-
-     List<CMuxPhysicalAdapter *, GUID> m_AdaptersList;
-
-     //
-     // List of physical adapters to be removed.
-     //
-
-     List<CMuxPhysicalAdapter *, GUID> m_AdaptersToRemove;
-
-     //
-     // List of physical adapters to be added.
-     //
-
-     List<CMuxPhysicalAdapter *, GUID> m_AdaptersToAdd;
-
-     //
-     // Private member functions.
-     //
-
-     HRESULT HrLoadAdapterConfiguration (VOID);
-
      HRESULT HrGetUpperAndLower (INetCfgBindingPath* pncbp,
                                  INetCfgComponent **ppnccUpper,
                                  INetCfgComponent **ppnccLower);
-
-     HRESULT HrAddAdapter (INetCfgComponent *pnccAdapter);
-
-     HRESULT HrRemoveAdapter (INetCfgComponent *pnccAdapter);
-
-     HRESULT HrAddMiniport (CMuxPhysicalAdapter *pAdapter,
-                            GUID *guidAdapter);
-
-     HRESULT HrRemoveMiniport (CMuxPhysicalAdapter *pAdapter,
-                            GUID *guidAdapter);
 
 #ifdef DISABLE_PROTOCOLS_TO_PHYSICAL
 
@@ -263,20 +191,6 @@ class CMuxNotify :
     HRESULT HrGetBindingInterface (IEnumNetCfgBindingInterface *pencbi,
                                    INetCfgBindingInterface **ppncbi);
 #endif
-
-  public:
-
-     LRESULT OnInitDialog (IN HWND hWnd);
-     LRESULT OnOk (IN HWND hWnd);
-     LRESULT OnCancel (IN HWND hWnd);
 };
 
-
-INT_PTR CALLBACK NotifyDialogProc (HWND hWnd,
-                                   UINT uMsg,
-                                   WPARAM wParam,
-                                   LPARAM lParam);
-UINT CALLBACK NotifyPropSheetPageProc (HWND hWnd,
-                                       UINT uMsg,
-                                       LPPROPSHEETPAGE ppsp);
 #endif // NOTIFY_H_INCLUDE

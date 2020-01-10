@@ -31,10 +31,6 @@ BEGIN_OBJECT_MAP(ObjectMap)
     OBJECT_ENTRY(CLSID_CMuxNotify, CMuxNotify)
 END_OBJECT_MAP()
 
-
-
-
-
 /////////////////////////////////////////////////////////////////////////////
 // DLL Entry Point
 
@@ -43,26 +39,26 @@ BOOL WINAPI DllMain (HINSTANCE hInstance,
                      DWORD dwReason,
                      LPVOID /*lpReserved*/)
 {
-	TraceMsg( L"-->DllMain.\n");
+    TraceMsg( L"-->DllMain.\n");
 
-	if (dwReason == DLL_PROCESS_ATTACH) {
+    if (dwReason == DLL_PROCESS_ATTACH) {
 
-		TraceMsg( L"   Reason: Attach.\n");
+        TraceMsg( L"   Reason: Attach.\n");
 
-		_Module.Init(ObjectMap, hInstance);
+        _Module.Init(ObjectMap, hInstance);
 
-		DisableThreadLibraryCalls(hInstance);
-	}
-	else if (dwReason == DLL_PROCESS_DETACH) {
+        DisableThreadLibraryCalls(hInstance);
+    }
+    else if (dwReason == DLL_PROCESS_DETACH) {
 
-		TraceMsg( L"   Reason: Detach.\n");
+        TraceMsg( L"   Reason: Detach.\n");
 
-		   _Module.Term();
-	}
+           _Module.Term();
+    }
 
-	TraceMsg( L"<--DllMain.\n");
+    TraceMsg( L"<--DllMain.\n");
 
-	return TRUE;
+    return TRUE;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -70,16 +66,16 @@ BOOL WINAPI DllMain (HINSTANCE hInstance,
 
 STDAPI DllCanUnloadNow(void)
 {
-	HRESULT hr;
+    HRESULT hr;
 
-	TraceMsg( L"-->DllCanUnloadNow.\n");
+    TraceMsg( L"-->DllCanUnloadNow.\n");
 
-	hr = (_Module.GetLockCount() == 0) ? S_OK : S_FALSE;
+    hr = (_Module.GetLockCount() == 0) ? S_OK : S_FALSE;
 
-	TraceMsg( L"-->DllCanUnloadNow(HRESULT = %x).\n",
-	        hr );
+    TraceMsg( L"-->DllCanUnloadNow(HRESULT = %x).\n",
+            hr );
 
-	return hr;  
+    return hr;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -87,9 +83,9 @@ STDAPI DllCanUnloadNow(void)
 
 STDAPI DllGetClassObject(_In_ REFCLSID rclsid, _In_ REFIID riid, _Outptr_ LPVOID* ppv)
 {
-	TraceMsg( L"-->DllGetClassObject.\n");
+    TraceMsg( L"-->DllGetClassObject.\n");
 
-	return _Module.GetClassObject(rclsid, riid, ppv);
+    return _Module.GetClassObject(rclsid, riid, ppv);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -97,11 +93,11 @@ STDAPI DllGetClassObject(_In_ REFCLSID rclsid, _In_ REFIID riid, _Outptr_ LPVOID
 
 STDAPI DllRegisterServer(void)
 {
-	// Registers object, typelib and all interfaces in typelib
+    // Registers object, typelib and all interfaces in typelib
 
-	TraceMsg( L"-->DllRegisterServer.\n");
+    TraceMsg( L"-->DllRegisterServer.\n");
 
-	return _Module.RegisterServer(TRUE);
+    return _Module.RegisterServer(TRUE);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -109,9 +105,9 @@ STDAPI DllRegisterServer(void)
 
 STDAPI DllUnregisterServer(void)
 {
-	TraceMsg( L"-->DllUnregisterServer.\n");
+    TraceMsg( L"-->DllUnregisterServer.\n");
 
-	_Module.UnregisterServer();
+    _Module.UnregisterServer();
 
-	return S_OK;
+    return S_OK;
 }
