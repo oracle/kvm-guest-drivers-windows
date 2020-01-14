@@ -121,10 +121,10 @@ typedef struct _NDISPROT_OPEN_CONTEXT
     PFILE_OBJECT            pFileObject;    // Set on OPEN_DEVICE
 
     NDIS_HANDLE             BindingHandle;
-    NDIS_HANDLE             SendNetBufferListPool;  
+    NDIS_HANDLE             SendNetBufferListPool;
     // let every net buffer list contain one net buffer(don't know how many net buffers can be include in one list.
     NDIS_HANDLE             RecvNetBufferListPool;
-    
+
     ULONG                   MacOptions;
     ULONG                   MaxFrameSize;
     ULONG                   DataBackFillSize;
@@ -141,19 +141,19 @@ typedef struct _NDISPROT_OPEN_CONTEXT
     NET_DEVICE_POWER_STATE  PowerState;
     NDIS_EVENT              PoweredUpEvent; // signalled iff PowerState is D0
     NDIS_STRING             DeviceName;     // used in NdisOpenAdapter
-    NDIS_STRING             DeviceDescr;	// friendly name
+    NDIS_STRING             DeviceDescr;    // friendly name
 
     NDIS_STATUS             BindStatus;     // for Open/CloseAdapter
     NPROT_EVENT             BindEvent;      // for Open/CloseAdapter
 
     ULONG                   oc_sig;         // Signature for sanity
     NDISPROT_OPEN_STATE     State;
-    PNPROT_EVENT            ClosingEvent;      
+    PNPROT_EVENT            ClosingEvent;
     UCHAR                   CurrentAddress[NPROT_MAC_ADDR_LEN];
     UCHAR                   MCastAddress[MAX_MULTICAST_ADDRESS][NPROT_MAC_ADDR_LEN];
 } NDISPROT_OPEN_CONTEXT, *PNDISPROT_OPEN_CONTEXT;
 
-    
+
 #define oc_signature        'OiuN'
 
 //
@@ -205,88 +205,7 @@ typedef struct _NDISPROT_GLOBALS
     NPROT_EVENT             BindsComplete;      // have we seen NetEventBindsComplete?
 } NDISPROT_GLOBALS, *PNDISPROT_GLOBALS;
 
-
-//
-//  The following are arranged in the way a little-endian processor
-//  would read 2 bytes off the wire.
-//
-#define NPROT_ETH_TYPE               0x8e88
-#define NPROT_8021P_TAG_TYPE         0x0081
-
-//
-//  NDIS Request context structure
-//
-typedef struct _NDISPROT_REQUEST
-{
-    NDIS_OID_REQUEST         Request;
-    NPROT_EVENT              ReqEvent;
-    ULONG                    Status;
-
-} NDISPROT_REQUEST, *PNDISPROT_REQUEST;
-
-
-#define NPROTO_PACKET_FILTER  (NDIS_PACKET_TYPE_DIRECTED|    \
-                              NDIS_PACKET_TYPE_MULTICAST|   \
-                              NDIS_PACKET_TYPE_BROADCAST)
-
-//
-//  Send packet pool bounds
-//
-/*
-#define MIN_SEND_PACKET_POOL_SIZE    20
-*/
-#define MAX_SEND_PACKET_POOL_SIZE    400
-
-
-//
-//  ProtocolReserved in sent packets. We save a pointer to the IRP
-//  that generated the send.
-//
-//  The RefCount is used to determine when to free the packet back
-//  to its pool. It is used to synchronize between a thread completing
-//  a send and a thread attempting to cancel a send.
-//
-typedef struct _NPROT_SEND_NETBUFLIST_RSVD
-{
-    PIRP                    pIrp;
-    ULONG                   RefCount;
-
-} NPROT_SEND_NETBUFLIST_RSVD, *PNPROT_SEND_NETBUFLIST_RSVD;
-//
-//  Receive packet pool bounds
-//
-#define MIN_RECV_PACKET_POOL_SIZE    4
-#define MAX_RECV_PACKET_POOL_SIZE    20
-
-//
-//  Max receive packets we allow to be queued up
-//
-#define MAX_RECV_QUEUE_SIZE          4
-
-//
-//  ProtocolReserved in received packets: we link these
-//  packets up in a queue waiting for Read IRPs.
-//
-typedef struct _NPROT_RECV_NBL_RSVD
-{
-    LIST_ENTRY              Link;
-    PNET_BUFFER_LIST        pNetBufferList;    // used if we had to partial-map
-
-} NPROT_RECV_NBL_RSVD, *PNPROT_RECV_NBL_RSVD;
-
-
 #include <pshpack1.h>
-
-typedef struct _NDISPROT_ETH_HEADER
-{
-    UCHAR       DstAddr[NPROT_MAC_ADDR_LEN];
-    UCHAR       SrcAddr[NPROT_MAC_ADDR_LEN];
-    USHORT      EthType;
-
-} NDISPROT_ETH_HEADER;
-
-typedef struct _NDISPROT_ETH_HEADER UNALIGNED * PNDISPROT_ETH_HEADER;
-
 #include <poppack.h>
 
 
@@ -313,46 +232,6 @@ NdisprotUnload(
     IN PDRIVER_OBJECT   pDriverObject
     );
 
-_Dispatch_type_(IRP_MJ_CREATE) DRIVER_DISPATCH NdisprotOpen;
-
-NTSTATUS
-NdisprotOpen(
-    IN PDEVICE_OBJECT   pDeviceObject,
-    IN PIRP             pIrp
-    );
-
-_Dispatch_type_(IRP_MJ_CLOSE) DRIVER_DISPATCH NdisprotClose;
-NTSTATUS
-NdisprotClose(
-    IN PDEVICE_OBJECT   pDeviceObject,
-    IN PIRP             pIrp
-    );
-
-_Dispatch_type_(IRP_MJ_CLEANUP) DRIVER_DISPATCH NdisprotCleanup;
-NTSTATUS
-NdisprotCleanup(
-    IN PDEVICE_OBJECT   pDeviceObject,
-    IN PIRP             pIrp
-    );
-
-_Dispatch_type_(IRP_MJ_DEVICE_CONTROL) DRIVER_DISPATCH NdisprotIoControl;
-_Function_class_(DRIVER_DISPATCH)
-_IRQL_requires_(PASSIVE_LEVEL)
-_IRQL_requires_same_
-NTSTATUS
-NdisprotIoControl(
-    _In_ IN PDEVICE_OBJECT   pDeviceObject,
-    _Inout_  IN PIRP             pIrp
-    );
-
-NTSTATUS
-ndisprotOpenDevice(
-    _In_reads_bytes_(DeviceNameLength) IN PUCHAR     pDeviceName,
-    IN ULONG                                    DeviceNameLength,
-    IN PFILE_OBJECT                             pFileObject,
-    OUT PNDISPROT_OPEN_CONTEXT *                ppOpenContext
-    );
-
 VOID
 ndisprotRefOpen(
     IN PNDISPROT_OPEN_CONTEXT       pOpenContext
@@ -362,22 +241,6 @@ VOID
 ndisprotDerefOpen(
     IN PNDISPROT_OPEN_CONTEXT       pOpenContext
     );
-
-#if DBG
-VOID
-ndisprotDbgRefOpen(
-    IN PNDISPROT_OPEN_CONTEXT       pOpenContext,
-    IN ULONG                        FileNumber,
-    IN ULONG                        LineNumber
-    );
-
-VOID
-ndisprotDbgDerefOpen(
-    IN PNDISPROT_OPEN_CONTEXT       pOpenContext,
-    IN ULONG                        FileNumber,
-    IN ULONG                        LineNumber
-    );
-#endif // DBG
 
 PROTOCOL_BIND_ADAPTER_EX NdisprotBindAdapter;
 
@@ -389,11 +252,6 @@ PROTOCOL_CLOSE_ADAPTER_COMPLETE_EX NdisprotCloseAdapterComplete;
 
 
 PROTOCOL_NET_PNP_EVENT NdisprotPnPEventHandler;
-
-VOID
-NdisprotProtocolUnloadHandler(
-    VOID
-    );
 
 NDIS_STATUS
 ndisprotCreateBinding(
@@ -436,29 +294,9 @@ ndisprotDoRequest(
     OUT PULONG                      pBytesProcessed
     );
 
-NDIS_STATUS
-ndisprotValidateOpenAndDoRequest(
-    IN PNDISPROT_OPEN_CONTEXT       pOpenContext,
-    IN NDIS_REQUEST_TYPE            RequestType,
-    IN NDIS_OID                     Oid,
-    IN PVOID                        InformationBuffer,
-    IN ULONG                        InformationBufferLength,
-    OUT PULONG                      pBytesProcessed,
-    IN BOOLEAN                      bWaitForPowerOn
-    );
-
 PROTOCOL_OID_REQUEST_COMPLETE NdisprotRequestComplete;
 
 PROTOCOL_STATUS_EX NdisprotStatus;
-
-NDIS_STATUS
-ndisprotQueryBinding(
-    _Inout_updates_bytes_to_(OutputLength, *pBytesReturned)
-		  PUCHAR					  pBuffer,
-    _In_  ULONG                       InputLength,
-    _In_  ULONG                       OutputLength,
-    _Out_ PULONG                      pBytesReturned
-    );
 
 PNDISPROT_OPEN_CONTEXT
 ndisprotLookupDevice(
@@ -466,101 +304,9 @@ ndisprotLookupDevice(
     IN ULONG                                    BindingInfoLength
     );
 
-NDIS_STATUS
-ndisprotQueryOidValue(
-    IN  PNDISPROT_OPEN_CONTEXT      pOpenContext,
-    OUT PVOID                       pDataBuffer,
-    IN  ULONG                       BufferLength,
-    OUT PULONG                      pBytesWritten
-    );
-
-NDIS_STATUS
-ndisprotSetOidValue(
-    IN  PNDISPROT_OPEN_CONTEXT      pOpenContext,
-    OUT PVOID                       pDataBuffer,
-    IN  ULONG                       BufferLength
-    );
-
-BOOLEAN
-ndisprotValidOid(
-    IN  NDIS_OID                    Oid
-    );
-
-_Dispatch_type_(IRP_MJ_READ) DRIVER_DISPATCH NdisprotRead;
-NTSTATUS
-NdisprotRead(
-    IN PDEVICE_OBJECT               pDeviceObject,
-    IN PIRP                         pIrp
-    );
-
-DRIVER_CANCEL NdisprotCancelRead;
-VOID
-NdisprotCancelRead(
-    IN PDEVICE_OBJECT               pDeviceObject,
-    IN PIRP                         pIrp
-    );
-
-VOID
-ndisprotServiceReads(
-    IN PNDISPROT_OPEN_CONTEXT        pOpenContext
-    );
-
 PROTOCOL_RECEIVE_NET_BUFFER_LISTS NdisprotReceiveNetBufferLists;
 
-VOID
-ndisprotQueueReceiveNetBufferList(
-    IN PNDISPROT_OPEN_CONTEXT        pOpenContext,
-    IN PNET_BUFFER_LIST              pRcvNetBufList,
-    BOOLEAN                          DispatchLevel
-    );
-
-_Success_(return != 0)
-PNET_BUFFER_LIST
-ndisprotAllocateReceiveNetBufferList(
-    _In_  PNDISPROT_OPEN_CONTEXT        pOpenContext,
-    _In_  UINT                          DataLength,
-    _Outptr_result_bytebuffer_(DataLength)
-	      PUCHAR *                      ppDataBuffer
-    );
-
-VOID
-ndisprotFreeReceiveNetBufferList(
-    IN PNDISPROT_OPEN_CONTEXT        pOpenContext,
-    IN PNET_BUFFER_LIST              pNetBufferList,
-    IN BOOLEAN                       DispatchLevel
-    );
-
-VOID
-ndisprotCancelPendingReads(
-    IN PNDISPROT_OPEN_CONTEXT        pOpenContext
-    );
-
-VOID
-ndisprotFlushReceiveQueue(
-    IN PNDISPROT_OPEN_CONTEXT        pOpenContext
-    );
-
-_Dispatch_type_(IRP_MJ_WRITE) DRIVER_DISPATCH  NdisprotWrite;
-NTSTATUS
-NdisprotWrite(
-    IN PDEVICE_OBJECT       pDeviceObject,
-    IN PIRP                 pIrp
-    );
-
-DRIVER_CANCEL NdisprotCancelWrite;
-VOID
-NdisprotCancelWrite(
-    IN PDEVICE_OBJECT               pDeviceObject,
-    IN PIRP                         pIrp
-    );
-
 PROTOCOL_SEND_NET_BUFFER_LISTS_COMPLETE NdisprotSendComplete;
-
-VOID
-ndisprotRestart(
-    IN PNDISPROT_OPEN_CONTEXT             pOpenContext,
-    IN PNDIS_PROTOCOL_RESTART_PARAMETERS  RestartParameters
-    );
 
 #endif // __NDISPROT__H
 
