@@ -1,18 +1,10 @@
-//+---------------------------------------------------------------------------
-//
-//  Microsoft Windows
-//  Copyright (C) Microsoft Corporation, 1992-2001.
-//
-//  File:       C O M M O N. H
-//
-//  Contents:   Common macros and declarations for the sample notify object.
-//
-//  Notes:
-//
-//  Author:     Alok Sinha
-//
-//----------------------------------------------------------------------------
-
+/*
+ * Copyright (C) Microsoft Corporation, 1992-2001.
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ *
+ * Author:     Alok Sinha
+ *             Annie Li     Reworked for 2-netdev SRIOV live migration
+ */
 
 #ifndef COMMON_H_INCLUDED
 

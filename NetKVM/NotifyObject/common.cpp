@@ -1,17 +1,10 @@
-//+---------------------------------------------------------------------------
-//
-//  Microsoft Windows
-//  Copyright (C) Microsoft Corporation, 1992-2001.
-//
-//  File:       COMMON.CPP
-//
-//  Contents:   Debug & Utility functions
-//
-//  Notes:
-//
-//  Author:     Alok Sinha
-//
-//----------------------------------------------------------------------------
+/*
+ * Copyright (C) Microsoft Corporation, 1992-2001.
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ *
+ * Author:     Alok Sinha
+ *             Annie Li     Reworked for 2-netdev SRIOV live migration
+ */
 
 #include <windows.h>
 #include <stdio.h>

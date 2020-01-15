@@ -1,17 +1,10 @@
-//+---------------------------------------------------------------------------
-//
-//  Microsoft Windows
-//  Copyright (C) Microsoft Corporation, 1992-2001.
-//
-//  File:       N O T I F Y . H
-//
-//  Contents:   Header file for sample notify object.
-//
-//  Notes:
-//
-//  Author:     Alok Sinha
-//
-//----------------------------------------------------------------------------
+/*
+ * Copyright (C) Microsoft Corporation, 1992-2001.
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ *
+ * Author:     Alok Sinha
+ *             Annie Li     Reworked for 2-netdev SRIOV live migration
+ */
 
 #ifndef NOTIFY_H_INCLUDE
 

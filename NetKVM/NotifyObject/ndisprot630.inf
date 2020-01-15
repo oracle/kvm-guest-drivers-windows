@@ -2,6 +2,7 @@
 ; NDISPROT630.INF -- Sample NDIS Protocol Driver
 ;
 ; Copyright (c) 2003, Microsoft Corporation
+; Copyright (c) 2020 Oracle and/or its affiliates.
 ;-------------------------------------------------------------------------
 [version]
 Signature   = "$Windows NT$"

@@ -1,16 +1,7 @@
-//+---------------------------------------------------------------------------
-//
-//  Microsoft Windows
-//  Copyright (C) Microsoft Corporation, 1992-2001.
-//
-//  File:       DLLMAIN . C P P
-//
-//  Contents:   Main entry points into the DLL
-//
-//  Notes:
-//
-//----------------------------------------------------------------------------
-
+/*
+ * Copyright (C) Microsoft Corporation, 1992-2001.
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ */
 
 #include <windows.h>
 #include <shellapi.h>

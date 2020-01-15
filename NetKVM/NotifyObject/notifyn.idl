@@ -1,15 +1,8 @@
-//+---------------------------------------------------------------------------
-//
-//  Microsoft Windows
-//  Copyright (C) Microsoft Corporation, 1992-2001.
-//
-//  File:       NOTIFYN.IDL
-//
-//  Contents:   
-//
-//  Notes:
-//
-//----------------------------------------------------------------------------
+/*
+ * Copyright (C) Microsoft Corporation, 1992-2001.
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ */
+
 #include <netcfgn.idl>
 
 [

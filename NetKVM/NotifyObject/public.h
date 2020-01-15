@@ -1,28 +1,8 @@
-/*++
-Copyright (c) 1990-2000    Microsoft Corporation All Rights Reserved
+/*
+ * Copyright (c) 1990-2000    Microsoft Corporation All Rights Reserved
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ */
 
-Module Name:
-
-    public.h
-
-Abstract:
-
-    This module contains the common declarations shared by driver
-    and user applications.
-
-Author:
-
-     
-Environment:
-
-    user and kernel
-Notes:
-
-
-Revision History:
-
-
---*/
 #ifndef __PUBLIC_H
 #define __PUBLIC_H
 
