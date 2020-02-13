@@ -7,183 +7,84 @@
  */
 
 #ifndef NOTIFY_H_INCLUDE
-
 #define NOTIFY_H_INCLUDE
 
 #include <windows.h>
-
 #include <atlbase.h>
 extern CComModule _Module;  // required by atlcom.h
 #include <atlcom.h>
 #include <devguid.h>
 #include <setupapi.h>
-
 #include <notifyn.h>
+#include <assert.h>
 #include "resource.h"
 #include "common.h"
 
+#define  VFDEV          0x0001
+#define  VIOPRO         0x0010
 
-//
-// CMuxNotify Object - Base class for the entire notify object
-//
+#define SET_FLAGS(Flag, Val)      (Flag) = ((Flag) | (Val))
+#define TEST_FLAGS(Flag, Val)     ((Flag) & (Val))
 
-
-class CMuxNotify :
-
-               //
-               // Must inherit from CComObjectRoot(Ex) for reference count
-               // management and default threading model.
-               //
- 
+class CNotifyObject :
                public CComObjectRoot,
-
-               //
-               // Define the default class factory and aggregation model.
-               //
-
-               public CComCoClass<CMuxNotify, &CLSID_CMuxNotify>,
-
-               //
-               // Notify Object's interfaces.
-               //
-
+               public CComCoClass<CNotifyObject, &CLSID_CNotifyObject>,
                public INetCfgComponentControl,
                public INetCfgComponentSetup,
                public INetCfgComponentNotifyBinding,
                public INetCfgComponentNotifyGlobal
 {
-
-   //
-   // Public members.
-   //
-
    public:
+      CNotifyObject(VOID);
+      ~CNotifyObject(VOID);
 
-      //
-      // Constructor
-      //
-
-      CMuxNotify(VOID);
-
-      //
-      // Destructors.
-      //
-
-      ~CMuxNotify(VOID);
-
-      //
-      // Notify Object's interfaces.
-      //
-
-      BEGIN_COM_MAP(CMuxNotify)
+      BEGIN_COM_MAP(CNotifyObject)
          COM_INTERFACE_ENTRY(INetCfgComponentControl)
          COM_INTERFACE_ENTRY(INetCfgComponentSetup)
          COM_INTERFACE_ENTRY(INetCfgComponentNotifyBinding)
          COM_INTERFACE_ENTRY(INetCfgComponentNotifyGlobal)
       END_COM_MAP()
 
-      //
-      // Uncomment the the line below if you don't want your object to
-      // support aggregation. The default is to support it
-      //
-      // DECLARE_NOT_AGGREGATABLE(CMuxNotify)
-      //
-
       DECLARE_REGISTRY_RESOURCEID(IDR_REG_SAMPLE_NOTIFY)
 
-      //
-      // INetCfgComponentControl
-      //
+      //INetCfgComponentControl
+      STDMETHOD (Initialize)(IN INetCfgComponent *pNetCfgCom,
+                             IN INetCfg          *pNetCfg,
+                             IN BOOL              fInstalling);
+      STDMETHOD (CancelChanges)();
+      STDMETHOD (ApplyRegistryChanges)();
+      STDMETHOD (ApplyPnpChanges)(IN INetCfgPnpReconfigCallback* pICallback);
 
-      STDMETHOD (Initialize) (
-                   IN INetCfgComponent  *pIComp,
-                   IN INetCfg           *pINetCfg,
-                   IN BOOL              fInstalling);
+      //INetCfgComponentSetup
+      STDMETHOD (Install)(IN DWORD dwSetupFlags);
+      STDMETHOD (Upgrade)(IN DWORD dwSetupFlags,
+                          IN DWORD dwUpgradeFromBuildNo);
+      STDMETHOD (ReadAnswerFile)(IN PCWSTR szAnswerFile,
+                                 IN PCWSTR szAnswerSections);
+      STDMETHOD (Removing)();
 
-      STDMETHOD (CancelChanges) ();
+      //INetCfgNotifyBinding
+      STDMETHOD (QueryBindingPath)(IN DWORD dwChangeFlag,
+                                   IN INetCfgBindingPath *pNetCfgBindPath);
+      STDMETHOD (NotifyBindingPath)(IN DWORD dwChangeFlag,
+                                    IN INetCfgBindingPath *pNetCfgBindPath);
 
-      STDMETHOD (ApplyRegistryChanges) ();
-
-      STDMETHOD (ApplyPnpChanges) (
-                   IN INetCfgPnpReconfigCallback* pICallback);
-
-      //
-      // INetCfgComponentSetup
-      //
-
-      STDMETHOD (Install) (
-                   IN DWORD dwSetupFlags);
-
-      STDMETHOD (Upgrade) (
-                   IN DWORD dwSetupFlags,
-                   IN DWORD dwUpgradeFromBuildNo);
-
-      STDMETHOD (ReadAnswerFile) (
-                   IN PCWSTR szAnswerFile,
-                   IN PCWSTR szAnswerSections);
-
-      STDMETHOD (Removing) ();
-
-      //
-      // INetCfgNotifyBinding
-      //
-
-      STDMETHOD (QueryBindingPath) (
-                   IN DWORD dwChangeFlag,
-                   IN INetCfgBindingPath* pncbp);
-
-      STDMETHOD (NotifyBindingPath) (
-                   IN DWORD dwChangeFlag,
-                   IN INetCfgBindingPath* pncbp);
-
-      //
-      // INetCfgNotifyGlobal
-      //
-
-      STDMETHOD (GetSupportedNotifications) (
-                   OUT DWORD* pdwNotificationFlag );
-
-      STDMETHOD (SysQueryBindingPath) (
-                   IN DWORD dwChangeFlag,
-                   IN INetCfgBindingPath* pncbp);
-
-      STDMETHOD (SysNotifyBindingPath) (
-                   IN DWORD dwChangeFlag,
-                   IN INetCfgBindingPath* pncbp);
-            
-      STDMETHOD (SysNotifyComponent) (
-                   IN DWORD dwChangeFlag,
-                   IN INetCfgComponent* pncc);
-
-  //
-  // Private members.
-  //
+      //INetCfgNotifyGlobal
+      STDMETHOD (GetSupportedNotifications)(OUT DWORD *pdwNotificationFlag );
+      STDMETHOD (SysQueryBindingPath)(IN DWORD dwChangeFlag,
+                                      IN INetCfgBindingPath *pNetCfgBindPath);
+      STDMETHOD (SysNotifyBindingPath)(IN DWORD dwChangeFlag,
+                                       IN INetCfgBindingPath *pNetCfgBindPath);
+      STDMETHOD (SysNotifyComponent)(IN DWORD dwChangeFlag,
+                                     IN INetCfgComponent *pNetCfgCom);
 
   private:
-     HRESULT HrGetUpperAndLower (INetCfgBindingPath* pncbp,
-                                 INetCfgComponent **ppnccUpper,
-                                 INetCfgComponent **ppnccLower);
-
-#ifdef DISABLE_PROTOCOLS_TO_PHYSICAL
-
-    VOID EnableBindings (INetCfgComponent *pnccAdapter,
+      INT CheckProtocolandDevInf(INetCfgBindingPath  *pNetCfgBindingPath,
+                                 INetCfgComponent   **ppUpNetCfgCom,
+                                 INetCfgComponent   **ppLowNetCfgCom);
+      HRESULT EnableVFBindings(INetCfgComponent *pNetCfgCom,
+                               BOOL bEnable);
+      VOID EnableBinding(INetCfgBindingPath *pNetCfgBindPath,
                          BOOL bEnable);
-
-    BOOL IfExistMux (INetCfgBindingPath *pncbp);
-
-    HRESULT HrGetBindingPathEnum (INetCfgComponent *pnccAdapter,
-                                  DWORD dwBindingType,
-                                  IEnumNetCfgBindingPath **ppencbp);
-
-    HRESULT HrGetBindingPath (IEnumNetCfgBindingPath *pencbp,
-                              INetCfgBindingPath **ppncbp);
-
-    HRESULT HrGetBindingInterfaceEnum (INetCfgBindingPath *pncbp,
-                                       IEnumNetCfgBindingInterface **ppencbi);
-
-    HRESULT HrGetBindingInterface (IEnumNetCfgBindingInterface *pencbi,
-                                   INetCfgBindingInterface **ppncbi);
-#endif
 };
-
 #endif // NOTIFY_H_INCLUDE

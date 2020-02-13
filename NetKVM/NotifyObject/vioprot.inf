@@ -1,48 +1,42 @@
 ;-------------------------------------------------------------------------
-; NDISPROT630.INF -- Sample NDIS Protocol Driver
+; VIOPROT.INF -- VirtIO NetKVM Protocol Driver
 ;
 ; Copyright (c) 2003, Microsoft Corporation
 ; Copyright (c) 2020 Oracle and/or its affiliates.
 ;-------------------------------------------------------------------------
+
 [version]
 Signature   = "$Windows NT$"
 Class       = NetTrans
 ClassGUID   = {4d36e975-e325-11ce-bfc1-08002be10318}
 Provider    = %ProviderString%
 DriverVer   = 07/16/2010,4.2
-CatalogFile  = ndisprot630.cat
+CatalogFile  = netkvm.cat
 
 
 [Manufacturer]
-%ManufacturerName%=Standard,NTx86,NTia64,NTamd64,NTarm,NTarm64
+%ManufacturerName%=Standard,NTx86,NTamd64
 
 [Standard.NTx86]
-%NDISPROT_Desc%=Install, MS_NDISPROT
-
-[Standard.NTia64]
-%NDISPROT_Desc%=Install, MS_NDISPROT
+%NDISPROT_Desc%=Install, VIOPROT
 
 [Standard.NTamd64]
-%NDISPROT_Desc%=Install, MS_NDISPROT
-
-[Standard.NTarm]
-%NDISPROT_Desc%=Install, MS_NDISPROT
-
-[Standard.NTarm64]
-%NDISPROT_Desc%=Install, MS_NDISPROT
+%NDISPROT_Desc%=Install, VIOPROT
 
 ;-------------------------------------------------------------------------
 ; Installation Section
 ;-------------------------------------------------------------------------
 [Install]
 AddReg=Inst_Ndi
-Characteristics=0x0 ; 
-CopyFiles=CpyFiles_Sys
+Characteristics=0x0 ;
+CopyFiles=CpyFiles_Dll
 
 ;-------------------------------------------------------------------------
 ; Ndi installation support
 ;-------------------------------------------------------------------------
 [Inst_Ndi]
+HKR, Ndi, ClsID, 0, {5a3db745-e424-4402-a575-af5e4bc65b1d}
+HKR, Ndi, ComponentDll, , netkvmno.dll
 HKR,Ndi,Service,,"Ndisprot"
 HKR,Ndi,HelpText,,%NDISPROT_HelpText%
 HKR,Ndi\Interfaces, UpperRange,, noupper
@@ -52,28 +46,22 @@ HKR,"Ndi\Interfaces","LowerRange",,"ndis5,ndis4,ndis5_prot"
 ; Service installation support
 ;-------------------------------------------------------------------------
 [Install.Services]
-AddService=Ndisprot,,NDISPROT_Service_Inst
+AddService=Ndisprot,,NDISPROT_Service_Inst,NDISPROT_AddEventLog
 
 [NDISPROT_Service_Inst]
 DisplayName     = %NDISPROT_Desc%
 ServiceType     = 1 ;SERVICE_KERNEL_DRIVER
 StartType       = 3 ;SERVICE_DEMAND_START
 ErrorControl    = 1 ;SERVICE_ERROR_NORMAL
-ServiceBinary   = %12%\ndisprot630.sys
+ServiceBinary   = %12%\netkvm.sys
 Description     = %NDISPROT_Desc%
-AddReg          = NdisImPlatformBinding_Reg
 
-[NdisImPlatformBinding_Reg]
-; By default, when an LBFO team or Bridge is created, all protocols will be
-; unbound from the underlying members and bound to the TNic(s). This keyword
-; allows a component to opt out of the default behavior
-; To prevent binding this protocol to the TNic(s):
-;   HKR, Parameters, NdisImPlatformBindingOptions,0x00010001,1 ; Do not bind to TNic
-; To prevent unbinding this protocol from underlying members:
-;   HKR, Parameters, NdisImPlatformBindingOptions,0x00010001,2 ; Do not unbind from Members
-; To prevent both binding to TNic and unbinding from members:
-;   HKR, Parameters, NdisImPlatformBindingOptions,0x00010001,3 ; Do not bind to TNic or unbind from Members
-HKR, Parameters, NdisImPlatformBindingOptions,0x00010001,0 ; Subscribe to default behavior
+[NDISPROT_AddEventLog]
+AddReg = NDISPROT_AddEventLog_AddReg
+
+[NDISPROT_AddEventLog_AddReg]
+HKR, , EventMessageFile, 0x20000, "%%SystemRoot%%\System32\netevent.dll"
+HKR, , TypesSupported,   0x10001, 7
 
 [Install.Remove.Services]
 DelService=Ndisprot,0x200
@@ -85,22 +73,20 @@ DelService=Ndisprot,0x200
 1=%DiskDescription%,"",,
 
 [SourceDisksFiles]
-ndisprot630.sys=1
-
+netkvmno.dll=1
 
 [DestinationDirs]
-CpyFiles_Sys    = 12    ; DIRID_DRIVERS
-
+CpyFiles_Dll    = 11    ; %windir%\System32
 
 ;-------------------------------------------------------------------------
 ; Files to Copy/Delete - Referenced by Install and Remove sections above
 ;-------------------------------------------------------------------------
-[CpyFiles_Sys]
-Ndisprot630.sys,,,2
+[CpyFiles_Dll]
+netkvmno.dll,,,2
 
 [Strings]
-ManufacturerName = "TODO-Set-Manufacturer"
-ProviderString = "TODO-Set-Provider"
-DiskDescription = "Ndisprot Sample Protocol Driver Disk"
-NDISPROT_Desc = "Sample NDIS Protocol Driver"
-NDISPROT_HelpText = "A driver to support user-mode I/O on NDIS devices"
+ManufacturerName = "VirtIO"
+ProviderString = "VirtIO"
+DiskDescription = "VirtIO NetKVM Protocol Driver Disk"
+NDISPROT_Desc = "VirtIO NetKVM Protocol Driver"
+NDISPROT_HelpText = "A driver to support SRIOV for VirtIO network devices"

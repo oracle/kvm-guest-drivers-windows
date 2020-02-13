@@ -15,62 +15,22 @@
 
 #define celems(_x)          (sizeof(_x) / sizeof(_x[0]))
 
-#define     MAX_VIRTUAL_MP_PER_ADAPTER      64
+/*
+ * Intel VF net device ID, VEN&DEV&SUBSYS.
+ * NOTE: Right now, prototype only supports Intel VF SR-IOV live
+ * migration. New device IDs will be added in future to support VFs
+ * from other vendors.
+ */
+const WCHAR c_szwIntelNetDevId[] = L"ven_8086&dev_1515";
 
-enum ConfigAction {
-
-    eActUnknown, 
-    eActInstall, 
-    eActAdd, 
-    eActRemove,
-    eActUpdate,
-    eActPropertyUIAdd,
-    eActPropertyUIRemove
-};       
-
-//
 // PnP ID, also referred to as Hardware ID, of the protocol interface.
-//
-
-const WCHAR c_szMuxProtocol[] = L"ms_muxp";
-
-//
-// PnP ID, also referred to as Hardware ID, of the Miniport interface.
-//
-
-const WCHAR c_szMuxMiniport[] = L"ms_muxmp";
-
-//
-// Name of the service as specified in the inf file in AddService directive.
-//
-
-const WCHAR c_szMuxService[] = L"muxp";
-
-//
-// Path to the config string where the virtual miniport instance names
-// are stored.
-//
-
-const WCHAR c_szAdapterList[] =
-                  L"System\\CurrentControlSet\\Services\\muxp\\Parameters\\Adapters";
-
-//
-// Value name in the registry where miniport device id is stored.
-//
-
-const WCHAR c_szUpperBindings[] = L"UpperBindings";
-
-
-const WCHAR c_szDevicePrefix[] = L"\\Device\\";
+const WCHAR c_szwKvmProtocol[] = L"vioprot";
 
 #define ReleaseObj( x )  if ( x ) \
                             ((IUnknown*)(x))->Release();
-
-
 #if DBG
 void TraceMsg ( _In_ LPWSTR szFormat, ...);
 #else
 #define TraceMsg
 #endif
-
 #endif // COMMON_H_INCLUDED

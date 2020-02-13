@@ -8,11 +8,11 @@
 
 #include "notify.h"
 
-CMuxNotify::CMuxNotify(VOID)
+CNotifyObject::CNotifyObject(VOID)
 {
 }
 
-CMuxNotify::~CMuxNotify(VOID)
+CNotifyObject::~CNotifyObject(VOID)
 {
 }
 
@@ -20,9 +20,9 @@ CMuxNotify::~CMuxNotify(VOID)
 // INetCfgComponentControl
 //----------------------------------------------------------------------------
 
-STDMETHODIMP CMuxNotify::Initialize(INetCfgComponent *pNetCfgCom,
-                                    INetCfg          *pNetCfg,
-                                    BOOL              fInstalling)
+STDMETHODIMP CNotifyObject::Initialize(INetCfgComponent *pNetCfgCom,
+                                       INetCfg          *pNetCfg,
+                                       BOOL              fInstalling)
 {
     UNREFERENCED_PARAMETER(pNetCfgCom);
     UNREFERENCED_PARAMETER(pNetCfg);
@@ -31,18 +31,18 @@ STDMETHODIMP CMuxNotify::Initialize(INetCfgComponent *pNetCfgCom,
     return S_OK;
 }
 
-STDMETHODIMP CMuxNotify::CancelChanges(VOID)
+STDMETHODIMP CNotifyObject::CancelChanges(VOID)
 {
     return S_OK;
 }
 
-STDMETHODIMP CMuxNotify::ApplyRegistryChanges(VOID)
+STDMETHODIMP CNotifyObject::ApplyRegistryChanges(VOID)
 {
     return S_OK;
 }
 
-STDMETHODIMP CMuxNotify::ApplyPnpChanges(
-                         INetCfgPnpReconfigCallback* pfCallback)
+STDMETHODIMP CNotifyObject::ApplyPnpChanges(
+                            INetCfgPnpReconfigCallback* pfCallback)
 {
     UNREFERENCED_PARAMETER(pfCallback);
 
@@ -53,15 +53,15 @@ STDMETHODIMP CMuxNotify::ApplyPnpChanges(
 // INetCfgComponentSetup
 //----------------------------------------------------------------------------
 
-STDMETHODIMP CMuxNotify::Install(DWORD dwSetupFlags)
+STDMETHODIMP CNotifyObject::Install(DWORD dwSetupFlags)
 {
     UNREFERENCED_PARAMETER(dwSetupFlags);
 
     return S_OK;
 }
 
-STDMETHODIMP CMuxNotify::Upgrade(IN DWORD dwSetupFlags,
-                                 IN DWORD dwUpgradeFromBuildNo)
+STDMETHODIMP CNotifyObject::Upgrade(IN DWORD dwSetupFlags,
+                                    IN DWORD dwUpgradeFromBuildNo)
 {
     UNREFERENCED_PARAMETER(dwSetupFlags);
     UNREFERENCED_PARAMETER(dwUpgradeFromBuildNo);
@@ -69,8 +69,8 @@ STDMETHODIMP CMuxNotify::Upgrade(IN DWORD dwSetupFlags,
     return S_OK;
 }
 
-STDMETHODIMP CMuxNotify::ReadAnswerFile(PCWSTR pszAnswerFile,
-                                        PCWSTR pszAnswerSection)
+STDMETHODIMP CNotifyObject::ReadAnswerFile(PCWSTR pszAnswerFile,
+                                           PCWSTR pszAnswerSection)
 {
     UNREFERENCED_PARAMETER(pszAnswerFile);
     UNREFERENCED_PARAMETER(pszAnswerSection);
@@ -78,7 +78,7 @@ STDMETHODIMP CMuxNotify::ReadAnswerFile(PCWSTR pszAnswerFile,
     return S_OK;
 }
 
-STDMETHODIMP CMuxNotify::Removing(VOID)
+STDMETHODIMP CNotifyObject::Removing(VOID)
 {
     return S_OK;
 }
@@ -87,8 +87,8 @@ STDMETHODIMP CMuxNotify::Removing(VOID)
 // INetCfgComponentNotifyBinding
 //----------------------------------------------------------------------------
 
-STDMETHODIMP CMuxNotify::QueryBindingPath(IN DWORD dwChangeFlag,
-                                          IN INetCfgBindingPath *pNetCfgBindPath)
+STDMETHODIMP CNotifyObject::QueryBindingPath(IN DWORD dwChangeFlag,
+                                             IN INetCfgBindingPath *pNetCfgBindPath)
 {
     UNREFERENCED_PARAMETER(dwChangeFlag);
     UNREFERENCED_PARAMETER(pNetCfgBindPath);
@@ -96,103 +96,116 @@ STDMETHODIMP CMuxNotify::QueryBindingPath(IN DWORD dwChangeFlag,
     return S_OK;
 }
 
-STDMETHODIMP CMuxNotify::NotifyBindingPath (IN DWORD dwChangeFlag,  
-                                            IN INetCfgBindingPath *pncbp)
+/*
+ * Check whether the binding is the one we need - the upper is the VirtIO
+ * protocol and the lower is the VF miniport driver.
+ * Return value - iRet, its bitmap(VFDEV/VIOPRO) represents existence
+ * of the VirtIO protocol and VF miniport in the binding.
+ */
+INT CNotifyObject::CheckProtocolandDevInf(INetCfgBindingPath *pNetCfgBindingPath,
+                                          INetCfgComponent  **ppUpNetCfgCom,
+                                          INetCfgComponent  **ppLowNetCfgCom
+)
 {
-    INetCfgComponent     *pnccLower;
-    INetCfgComponent     *pnccUpper;
-    LPWSTR               pszwInfIdLower;
-    LPWSTR               pszwInfIdUpper;
-    DWORD                dwCharcteristics;
-    HRESULT              hr = S_OK;
+    IEnumNetCfgBindingInterface    *pEnumNetCfgBindIf;
+    INetCfgBindingInterface        *pNetCfgBindIf;
+    ULONG                           ulNum;
+    LPWSTR                          pszwLowInfId;
+    LPWSTR                          pszwUpInfId;
+    INT                             iRet = 0;
 
-    TraceMsg( L"-->CMuxNotify INetCfgNotifyBinding::NotifyBindingPath.\n" );
+    TraceMsg(L"-->CNotifyObject::%s bRet %d.\n", __FUNCTION__, iRet);
 
-     //
-     // We are only interested to know 1) when a component is installed
-     // and we are binding to it i.e. dwChangeFlag = NCN_ADD | NCN_ENABLE
-     // and 2) when a component is removed to which we are bound i.e.
-     // dwChangeFlag = NCN_REMOVE | NCN_ENABLE. dwChangeFlag is never
-     // set to NCN_ADD or NCN_REMOVE only. So, checking for NCN_ENABLE
-     // covers the case of NCN_ADD | NCN_ENABLE and checking for NCN_REMOVE
-     // covers the case of NCN_REMOVE | NCN_ENABLE. We don't care about
-     // NCN_ADD | NCN_DISABLE (case 1) and NCN_REMOVE | NCN_DISABLE (case 2).
-     //
+    if (S_OK != pNetCfgBindingPath->EnumBindingInterfaces(&pEnumNetCfgBindIf))
+        goto end4;
 
-     if ( dwChangeFlag & (NCN_ENABLE | NCN_REMOVE) ) {
+    if (S_OK != pEnumNetCfgBindIf->Next(1, &pNetCfgBindIf, &ulNum))
+        goto end3;
 
-        //
-        // Get the upper and lower components.
-        //
+    if (S_OK != pNetCfgBindIf->GetUpperComponent(ppUpNetCfgCom))
+        goto end2;
 
-        hr = HrGetUpperAndLower( pncbp,
-                                 &pnccUpper,
-                                 &pnccLower );
+    if (S_OK != pNetCfgBindIf->GetLowerComponent(ppLowNetCfgCom))
+        goto end2;
 
-        if ( hr == S_OK ) {
+    if (S_OK != (*ppUpNetCfgCom)->GetId(&pszwUpInfId))
+        goto end2;
 
-            hr = pnccLower->GetCharacteristics( &dwCharcteristics );
+    if (S_OK != (*ppLowNetCfgCom)->GetId(&pszwLowInfId))
+        goto end1;
 
-            if ( hr == S_OK ) {
-                hr = pnccLower->GetId( &pszwInfIdLower );
+    // Upper is VIO protocol
+    if (!_wcsicmp(pszwUpInfId, c_szwKvmProtocol))
+        SET_FLAGS(iRet, VIOPRO);
+    // Lower is VF device miniport
+    if (wcsstr(pszwLowInfId, c_szwIntelNetDevId))
+        SET_FLAGS(iRet, VFDEV);
+    TraceMsg(L" pszwUpInfId  %s and pszwLowInfId %s iRet %d\n",
+             pszwUpInfId, pszwLowInfId, iRet);
 
-                if ( hr == S_OK ) {
-                    hr = pnccUpper->GetId( &pszwInfIdUpper );
+    CoTaskMemFree(pszwLowInfId);
+end1:
+    CoTaskMemFree(pszwUpInfId);
+end2:
+    ReleaseObj(pNetCfgBindIf);
+end3:
+    ReleaseObj(pEnumNetCfgBindIf);
+end4:
+    TraceMsg(L"<--CNotifyObject::%s iRet %d\n", __FUNCTION__, iRet);
+    return iRet;
+}
 
-                    if ( hr == S_OK ) {
+/*
+ * When the new binding(VirtIO Protocol<->VF Miniport) is added, enumerate
+ * all other bindings(non VirtIO Protocol<->VF Miniport) and disable them.
+ * When the a binding(VirtIO Protocol<->VF Miniport) is removed, enumerate
+ * all other bindings(non VirtIO Protocol<->VF Miniport) and enable them.
+ */
+STDMETHODIMP CNotifyObject::NotifyBindingPath(IN DWORD dwChangeFlag,
+                                              IN INetCfgBindingPath *pNetCfgBindPath)
+{
+    INetCfgComponent     *pUpNetCfgCom;
+    INetCfgComponent     *pLowNetCfgCom;
+    BOOL                  bAdd, bRemove;
+    INT                   iRet = 0;
 
-                        //
-                        // We are interested only in binding to a
-                        // physical ethernet adapters.
-                        // 
+    pUpNetCfgCom = NULL;
+    pLowNetCfgCom = NULL;
 
-                        if ( dwCharcteristics & NCF_PHYSICAL ) {
+    TraceMsg( L"-->CNotifyObject INetCfgNotifyBinding::%s \n", __FUNCTION__);
 
-                            if ( !_wcsicmp( pszwInfIdUpper, c_szMuxProtocol ) ) {
+    bAdd = dwChangeFlag & NCN_ADD;
+    bRemove = dwChangeFlag & NCN_REMOVE;
+    assert(!(bAdd && bRemove));
 
-                                if ( dwChangeFlag & NCN_ADD ) {
-                                    //This code is for MUX N:1 model, comment it to pass compile
-                                    //but leave it here for reference.
-                                    //hr = HrAddAdapter( pnccLower );
-                                    if( hr != S_OK ){
-                                        // you may do something
-                                    }
-                                    //m_eApplyAction = eActAdd;
-
-                                } else if ( dwChangeFlag & NCN_REMOVE ) {
-                                    //This code is for MUX N:1 model, comment it to pass compile
-                                    //but leave it here for reference.
-                                    //hr = HrRemoveAdapter( pnccLower );
-                                    if( hr != S_OK ){
-                                        // you may do something
-                                    }
-                                    //m_eApplyAction = eActRemove;
-                                }
-                            }
-                        } // Physical Adapters. 
-                        else if (dwCharcteristics & NCF_VIRTUAL) {
-
-                        }
-
-                        CoTaskMemFree( pszwInfIdUpper );
-
-                    } // Got the upper component id.
-
-                    CoTaskMemFree( pszwInfIdLower );
-
-                } // Got the lower component id.
-
-            } // Got NIC's characteristics
-
-            ReleaseObj(pnccLower);
-            ReleaseObj(pnccUpper);
-
-        } // Got the upper and lower components.
-
-    } 
-
-    TraceMsg( L"<--CMuxNotify INetCfgNotifyBinding::NotifyBindingPath(HRESULT = %x).\n",
-            S_OK );
+    // Check and operate when binding is being added or removed
+    if (bAdd || bRemove) {
+        iRet = CheckProtocolandDevInf(pNetCfgBindPath,
+                                      &pUpNetCfgCom, &pLowNetCfgCom);
+        if (TEST_FLAGS(iRet, VFDEV) && TEST_FLAGS(iRet, VIOPRO)) {
+            if (bAdd) {
+                // Enumerate and disable other bindings except for
+                // VIOprotocol<->VF miniport
+                if (EnableVFBindings(pLowNetCfgCom, FALSE))
+                    TraceMsg(L"Failed to disable non VIO protocol to VF miniport\n");
+            }
+            else {
+                // Enumerate and enable other bindings except for
+                // VIOprotocol<->VF miniport
+                if (EnableVFBindings(pLowNetCfgCom, TRUE))
+                    TraceMsg(L"Failed to enable non VIO protocol to VF miniport\n");
+            }
+        }
+        if (pUpNetCfgCom != NULL)
+        {
+            ReleaseObj(pUpNetCfgCom);
+        }
+        if (pLowNetCfgCom != NULL)
+        {
+            ReleaseObj(pLowNetCfgCom);
+        }
+    }
+    TraceMsg(L"<--CNotifyObject INetCfgNotifyBinding::%s \n", __FUNCTION__);
 
     return S_OK;
 }
@@ -201,128 +214,58 @@ STDMETHODIMP CMuxNotify::NotifyBindingPath (IN DWORD dwChangeFlag,
 // INetCfgComponentNotifyGlobal
 //----------------------------------------------------------------------------
 
-STDMETHODIMP CMuxNotify::GetSupportedNotifications (
-                                             OUT DWORD* pdwNotificationFlag)
+STDMETHODIMP CNotifyObject::GetSupportedNotifications(
+                                  OUT DWORD *pdwNotificationFlag)
 {
-    TraceMsg( L"-->CMuxNotify INetCfgNotifyGlobal::GetSupportedNotifications.\n" );
+    TraceMsg( L"-->CNotifyObject INetCfgNotifyGlobal::%s\n", __FUNCTION__);
 
     *pdwNotificationFlag = NCN_NET | NCN_NETTRANS | NCN_ADD | NCN_REMOVE |
                            NCN_BINDING_PATH | NCN_ENABLE | NCN_DISABLE;
 
-    TraceMsg( L"<--CMuxNotify INetCfgNotifyGlobal::GetSupportedNotifications(HRESULT = %x).\n",
-            S_OK );
+    TraceMsg( L"<--CNotifyObject INetCfgNotifyGlobal::%s\n", __FUNCTION__);
 
     return S_OK;
 }
 
-STDMETHODIMP CMuxNotify::SysQueryBindingPath (DWORD dwChangeFlag,
-                                              INetCfgBindingPath* pncbp)
+//When addition of a binding path is about to occur,
+//disable it if it is VirtIO protocol<->non VF miniport binding.
+STDMETHODIMP CNotifyObject::SysQueryBindingPath(DWORD dwChangeFlag,
+                                                INetCfgBindingPath *pNetCfgBindPath)
 {
-    INetCfgComponent     *pnccLower;
-    INetCfgComponent     *pnccUpper;
-    LPWSTR               pszwInfIdLower;
-    LPWSTR               pszwInfIdUpper;
-    DWORD                dwCharcteristics;
-    HRESULT              hr = S_OK;
+    INetCfgComponent     *pUpNetCfgCom;
+    INetCfgComponent     *pLowNetCfgCom;
+    INT                  iRet = 0;
+    HRESULT              hResult = S_OK;
 
+    pUpNetCfgCom = NULL;
+    pLowNetCfgCom = NULL;
+    TraceMsg(L"-->CNotifyObject INetCfgNotifyGlobal::%s\n", __FUNCTION__);
 
-    TraceMsg( L"-->CMuxNotify INetCfgNotifyGlobal::SysQueryBindingPath.\n" );
-
-    if ( dwChangeFlag & NCN_ENABLE ) {
-
-        //
-        // Get the upper and lower components.
-        //
-
-        hr = HrGetUpperAndLower( pncbp,
-                                 &pnccUpper,
-                                 &pnccLower );
-
-        if ( hr == S_OK ) {
-            hr = pnccLower->GetCharacteristics( &dwCharcteristics );
-
-            if ( hr == S_OK ) {
-                hr = pnccLower->GetId( &pszwInfIdLower );
-
-                if ( hr == S_OK ) {
-                    hr = pnccUpper->GetId( &pszwInfIdUpper );
-
-                    if ( hr == S_OK ) {
-
-                        //
-                        // We are interested only in bindings to physical 
-                        // ethernet adapters.
-                        // 
-
-                        if ( dwCharcteristics & NCF_PHYSICAL ) {
-
-#ifdef DISABLE_PROTOCOLS_TO_PHYSICAL
-
-                            //
-                            // If it not our protocol binding to the
-                            // physical adapter then, disable the
-                            // binding.
-                            //
-
-                            if (_wcsicmp( pszwInfIdUpper, c_szMuxProtocol ) ) {
-
-                                TraceMsg( L"   Disabling the binding between %s "
-                                          L"and %s.\n",
-                                          pszwInfIdUpper,
-                                          pszwInfIdLower );
-
-                                hr = NETCFG_S_DISABLE_QUERY;
-                            }
-#endif
-
-                        } // Physical Adapters. 
-                        else {
-                            if (dwCharcteristics & NCF_VIRTUAL) {
-
-                                // If the lower component is our miniport
-                                // and the upper component is our protocol
-                                // then also, disable the binding.
-
-                                if ( !_wcsicmp(pszwInfIdLower, c_szMuxMiniport) &&
-                                     !_wcsicmp(pszwInfIdUpper, c_szMuxProtocol) ) {
-                                  
-                                    TraceMsg( L"   Disabling the binding between %s "
-                                              L"and %s.\n",
-                                              pszwInfIdUpper,
-                                              pszwInfIdLower );
-
-                                    hr = NETCFG_S_DISABLE_QUERY;
-                                }
-
-                            } // Virtual Adapters
-
-                        }
-
-                        CoTaskMemFree( pszwInfIdUpper );
-
-                    } // Got the upper component id.
-
-                    CoTaskMemFree( pszwInfIdLower );
-
-                } // Got the lower component id.
-
-            } // Got NIC's characteristics
-
-            ReleaseObj(pnccLower);
-            ReleaseObj(pnccUpper);
-
+    if (dwChangeFlag & (NCN_ENABLE | NCN_ADD)) {
+        iRet = CheckProtocolandDevInf(pNetCfgBindPath,
+                                      &pUpNetCfgCom, &pLowNetCfgCom);
+        if (!TEST_FLAGS(iRet, VFDEV) && TEST_FLAGS(iRet, VIOPRO)) {
+            // Upper protocol is virtio protocol and lower id is not
+            // vf device id, disable the binding.
+            hResult = NETCFG_S_DISABLE_QUERY;
         }
-
+        if (pUpNetCfgCom != NULL)
+        {
+            ReleaseObj(pUpNetCfgCom);
+        }
+        if (pLowNetCfgCom != NULL)
+        {
+            ReleaseObj(pLowNetCfgCom);
+        }
     }
+    TraceMsg(L"<--CNotifyObject INetCfgNotifyGlobal::%s HRESULT = %x\n",
+             __FUNCTION__, hResult);
 
-    TraceMsg( L"<--CMuxNotify INetCfgNotifyGlobal::SysQueryBindingPath(HRESULT = %x).\n",
-            hr );
-
-    return hr;
+    return hResult;
 }
 
-STDMETHODIMP CMuxNotify::SysNotifyBindingPath(DWORD dwChangeFlag,
-                                             INetCfgBindingPath* pNetCfgBindPath)
+STDMETHODIMP CNotifyObject::SysNotifyBindingPath(DWORD dwChangeFlag,
+                                                 INetCfgBindingPath* pNetCfgBindPath)
 {
     UNREFERENCED_PARAMETER(dwChangeFlag);
     UNREFERENCED_PARAMETER(pNetCfgBindPath);
@@ -330,8 +273,8 @@ STDMETHODIMP CMuxNotify::SysNotifyBindingPath(DWORD dwChangeFlag,
     return S_OK;
 }
 
-STDMETHODIMP CMuxNotify::SysNotifyComponent(DWORD dwChangeFlag,
-                                            INetCfgComponent* pNetCfgCom)
+STDMETHODIMP CNotifyObject::SysNotifyComponent(DWORD dwChangeFlag,
+                                               INetCfgComponent* pNetCfgCom)
 {
     UNREFERENCED_PARAMETER(dwChangeFlag);
     UNREFERENCED_PARAMETER(pNetCfgCom);
@@ -339,366 +282,73 @@ STDMETHODIMP CMuxNotify::SysNotifyComponent(DWORD dwChangeFlag,
     return S_OK;
 }
 
-//----------------------------------------------------------------------------
-//
-//  Function:   CMuxNotify::HrGetUpperAndLower
-//
-//  Purpose:    Get the upper and lower component of the first interface
-//              of a binding path.
-//
-//  Arguments:  
-//              IN  pncbp     : Binding path.
-//              OUT ppnccUpper: Upper component.
-//              OUT ppnccLower: Lower component.
-//
-//  Returns:    S_OK, or an error.
-//
-//
-//  Notes:
-//
-
-HRESULT CMuxNotify::HrGetUpperAndLower (INetCfgBindingPath* pncbp,
-                                        INetCfgComponent **ppnccUpper,
-                                        INetCfgComponent **ppnccLower)
+//Enable/Disable the bindings of non VIO protocols to the VF miniport
+HRESULT CNotifyObject::EnableVFBindings(INetCfgComponent *pNetCfgCom,
+                                        BOOL bEnable)
 {
-    IEnumNetCfgBindingInterface*    pencbi;
-    INetCfgBindingInterface*        pncbi;
-    ULONG                           ulCount;
-    HRESULT                         hr;
+    IEnumNetCfgBindingPath      *pEnumNetCfgBindPath;
+    INetCfgBindingPath          *pNetCfgBindPath;
+    INetCfgComponentBindings    *pNetCfgComBind;
+    HRESULT                     hResult;
+    ULONG                       ulNum;
 
-    TraceMsg( L"-->CMuxNotify::HrGetUpperAndLowerComponent.\n" );
+    TraceMsg(L"-->CNotifyObject::%s bEnable = %d \n", __FUNCTION__, bEnable);
 
-    *ppnccUpper = NULL;
-    *ppnccLower = NULL;
-
-    hr = pncbp->EnumBindingInterfaces(&pencbi);
-
-    if (S_OK == hr) {
-     
-        //
-        // get the first binding interface
-        //
-
-        hr = pencbi->Next(1, &pncbi, &ulCount);
-
-        if ( hr == S_OK ) {
-
-            hr = pncbi->GetUpperComponent( ppnccUpper );
-
-            if ( hr == S_OK ) {
-
-                hr = pncbi->GetLowerComponent ( ppnccLower );
-            }
-            else {
-                if( ppnccUpper != NULL )
-                {
-                    ReleaseObj( *ppnccUpper );
-                }
-            }
-
-            ReleaseObj( pncbi );
-        }
-
-        ReleaseObj( pencbi );
-    }
-
-    TraceMsg( L"<--CMuxNotify::HrGetUpperAndLowerComponent(HRESULT = %x).\n",
-            hr );
-
-    return hr;
-}
-
-#ifdef DISABLE_PROTOCOLS_TO_PHYSICAL
-
-// ----------------------------------------------------------------------
-//
-// Function:  CMuxNotify::EnableBindings
-//
-// Purpose:   Enable/Disable the bindings of other protocols to 
-//            the physical adapter.
-//
-// Arguments:
-//            IN pnccAdapter: Pointer to the physical adapter.
-//            IN bEnable: TRUE/FALSE to enable/disable respectively.
-//
-// Returns:   None.
-//
-// Notes:
-//
-
-VOID CMuxNotify::EnableBindings (INetCfgComponent *pnccAdapter,
-                                 BOOL bEnable)
-{
-    IEnumNetCfgBindingPath      *pencbp;
-    INetCfgBindingPath          *pncbp;
-    HRESULT                     hr;
-  
-    TraceMsg( L"-->CMuxNotify::EnableBindings.\n" );
-
-
-    //
     // Get the binding path enumerator.
-    //
+    pEnumNetCfgBindPath = NULL;
+    pNetCfgComBind = NULL;
+    hResult = pNetCfgCom->QueryInterface(IID_INetCfgComponentBindings,
+                                         (PVOID *)&pNetCfgComBind);
+    if (S_OK == hResult) {
+        hResult = pNetCfgComBind->EnumBindingPaths(EBP_ABOVE,
+                                                   &pEnumNetCfgBindPath);
+        ReleaseObj(pNetCfgComBind);
+    }
+    else
+        return hResult;
 
-    hr = HrGetBindingPathEnum( pnccAdapter,
-                               EBP_ABOVE,
-                               &pencbp );
-    if ( hr == S_OK ) {
-
-        hr = HrGetBindingPath( pencbp,
-                               &pncbp );
-
-        //
-        // Traverse each binding path.
-        //
-
-        while( hr == S_OK ) {
-
-            //
-            // If our protocol does exist in the binding path then,
-            // disable it.
-            //
-
-            if ( !IfExistMux(pncbp) ) {
-
-                pncbp->Enable( bEnable );
-            }
-
-            ReleaseObj( pncbp );
-
-            hr = HrGetBindingPath( pencbp,
-                                   &pncbp );
+    if (hResult == S_OK) {
+        pNetCfgBindPath = NULL;
+        hResult = pEnumNetCfgBindPath->Next(1, &pNetCfgBindPath, &ulNum);
+        // Enumerate every binding path.
+        while (hResult == S_OK) {
+            EnableBinding(pNetCfgBindPath, bEnable);
+            ReleaseObj(pNetCfgBindPath);
+            pNetCfgBindPath = NULL;
+            hResult = pEnumNetCfgBindPath->Next(1, &pNetCfgBindPath, &ulNum);
         }
-
-        ReleaseObj( pencbp );
+        ReleaseObj(pEnumNetCfgBindPath);
     }
     else {
-        TraceMsg( L"   Couldn't get the binding path enumerator, "
-                  L"bindings will not be %s.\n",
-                  bEnable ? L"enabled" : L"disabled" );
+        TraceMsg(L"Failed to get the binding path enumerator, "
+                 L"bindings will not be %s.\n",
+                 bEnable ? L"enabled" : L"disabled");
     }
 
-    TraceMsg( L"<--CMuxNotify::EnableBindings.\n" );
+    TraceMsg(L"<--CNotifyObject::%s\n", __FUNCTION__);
+
+    return hResult;
+}
+
+//Enable or disable bindings with non VIO protocol
+VOID CNotifyObject::EnableBinding(INetCfgBindingPath *pNetCfgBindPath,
+                                  BOOL bEnable)
+{
+    INetCfgComponent     *pUpNetCfgCom;
+    INetCfgComponent     *pLowNetCfgCom;
+    INT                   iRet;
+
+    pUpNetCfgCom = NULL;
+    pLowNetCfgCom = NULL;
+
+    iRet = CheckProtocolandDevInf(pNetCfgBindPath,
+                                  &pUpNetCfgCom, &pLowNetCfgCom);
+    if (!TEST_FLAGS(iRet, VIOPRO))
+        pNetCfgBindPath->Enable(bEnable);
+    if (pUpNetCfgCom != NULL)
+        ReleaseObj(pUpNetCfgCom);
+    if (pLowNetCfgCom != NULL)
+        ReleaseObj(pLowNetCfgCom);
 
     return;
 }
-
-// ----------------------------------------------------------------------
-//
-// Function:  CMuxNotify::IfExistMux
-//
-// Purpose:   Determine if a given binding path contains our protocol.
-//
-// Arguments:
-//            IN pncbp: Pointer to the binding path.
-//
-// Returns:   TRUE if our protocol exists, otherwise FALSE.
-//
-// Notes:
-//
-
-BOOL CMuxNotify::IfExistMux (INetCfgBindingPath *pncbp)
-{
-    IEnumNetCfgBindingInterface *pencbi;
-    INetCfgBindingInterface     *pncbi;
-    INetCfgComponent            *pnccUpper;
-    LPWSTR                      lpszIdUpper;
-    HRESULT                     hr;
-    BOOL                        bExist = FALSE;
-
-    TraceMsg( L"-->CMuxNotify::IfExistMux.\n" );
-
-    //
-    // Get the binding interface enumerator.
-    //
-
-    hr = HrGetBindingInterfaceEnum( pncbp,
-                                  &pencbi );
-
-    if ( hr == S_OK ) {
-
-        //
-        // Traverse each binding interface.
-        //
-
-        hr = HrGetBindingInterface( pencbi,
-                                    &pncbi );
-
-        while( !bExist && (hr == S_OK) ) {
-
-            //
-            // Is the upper component our protocol?
-            //
-
-            hr = pncbi->GetUpperComponent( &pnccUpper );
-
-            if ( hr == S_OK ) {
-
-                hr = pnccUpper->GetId( &lpszIdUpper );
-
-                if ( hr == S_OK ) {
-
-                    bExist = !_wcsicmp( lpszIdUpper, c_szMuxProtocol );
-
-                    CoTaskMemFree( lpszIdUpper );
-                }
-                else {
-                    TraceMsg( L"   Failed to get the upper component of the interface.\n" );
-                }
-
-                ReleaseObj( pnccUpper );
-            }
-            else {
-                TraceMsg( L"   Failed to get the upper component of the interface.\n" );
-            }
-
-            ReleaseObj( pncbi );
-
-            if ( !bExist ) {
-                hr = HrGetBindingInterface( pencbi,
-                                            &pncbi );
-            }
-        }
-
-        ReleaseObj( pencbi );
-    }
-    else {
-        TraceMsg( L"   Couldn't get the binding interface enumerator.\n" );
-    }
-
-    TraceMsg( L"<--CMuxNotify::IfExistMux(BOOL = %x).\n",
-            bExist );
-
-    return bExist;
-}
-
-// ----------------------------------------------------------------------
-//
-// Function:  CMuxNotify::HrGetBindingPathEnum
-//
-// Purpose:   Returns the binding path enumerator.
-//
-// Arguments:
-//            IN  pnccAdapter  : Pointer to the physical adapter.
-//            IN  dwBindingType: Type of binding path enumerator.
-//            OUT ppencbp      : Pointer to the binding path enumerator.
-//
-// Returns:   S_OK on success, otherwise an error code.
-//
-// Notes:
-//
-
-HRESULT CMuxNotify::HrGetBindingPathEnum (
-                                     INetCfgComponent *pnccAdapter,
-                                     DWORD dwBindingType,
-                                     IEnumNetCfgBindingPath **ppencbp)
-{
-    INetCfgComponentBindings *pnccb = NULL;
-    HRESULT                  hr;
-
-    *ppencbp = NULL;
-
-    hr = pnccAdapter->QueryInterface( IID_INetCfgComponentBindings,
-                               (PVOID *)&pnccb );
-
-    if ( hr == S_OK ) {
-        hr = pnccb->EnumBindingPaths( dwBindingType,
-                                      ppencbp );
-
-        ReleaseObj( pnccb );
-    }
-
-    return hr;
-}
-
-// ----------------------------------------------------------------------
-//
-// Function:  CMuxNotify::HrGetBindingPath
-//
-// Purpose:   Returns a binding path.
-//
-// Arguments:
-//            IN  pencbp  : Pointer to the binding path enumerator.
-//            OUT ppncbp  : Pointer to the binding path.
-//
-// Returns:   S_OK on success, otherwise an error code.
-//
-// Notes:
-//
-
-HRESULT CMuxNotify::HrGetBindingPath (IEnumNetCfgBindingPath *pencbp,
-                                      INetCfgBindingPath **ppncbp)
-{
-    ULONG   ulCount;
-    HRESULT hr;
-
-    *ppncbp = NULL;
-
-    hr = pencbp->Next( 1,
-                       ppncbp,
-                       &ulCount );
-
-    return hr;
-}
-
-// ----------------------------------------------------------------------
-//
-// Function:  CMuxNotify::HrGetBindingInterfaceEnum
-//
-// Purpose:   Returns the binding interface enumerator.
-//
-// Arguments:
-//            IN  pncbp  : Pointer to the binding path.
-//            OUT ppencbi: Pointer to the binding path enumerator.
-//
-// Returns:   S_OK on success, otherwise an error code.
-//
-// Notes:
-//
-
-HRESULT CMuxNotify::HrGetBindingInterfaceEnum (
-                                     INetCfgBindingPath *pncbp,
-                                     IEnumNetCfgBindingInterface **ppencbi)
-{
-    HRESULT hr;
-
-    *ppencbi = NULL;
-
-    hr = pncbp->EnumBindingInterfaces( ppencbi );
-
-    return hr;
-}
-
-// ----------------------------------------------------------------------
-//
-// Function:  CMuxNotify::HrGetBindingInterface
-//
-// Purpose:   Returns a binding interface.
-//
-// Arguments:
-//            IN  pencbi  : Pointer to the binding interface enumerator.
-//            OUT ppncbi  : Pointer to the binding interface.
-//
-// Returns:   S_OK on success, otherwise an error code.
-//
-// Notes:
-//
-
-HRESULT CMuxNotify::HrGetBindingInterface (
-                                     IEnumNetCfgBindingInterface *pencbi,
-                                     INetCfgBindingInterface **ppncbi)
-{
-    ULONG   ulCount;
-    HRESULT hr;
-
-    *ppncbi = NULL;
-
-    hr = pencbi->Next( 1,
-                       ppncbi,
-                       &ulCount );
-
-    return hr;
-}
-
-#endif
-

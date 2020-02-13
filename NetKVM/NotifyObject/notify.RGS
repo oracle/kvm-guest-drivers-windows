@@ -2,7 +2,7 @@ HKCR
 {
     NoRemove CLSID
     {
-        ForceRemove {ee6cd6fc-a32b-4a26-8a1c-dbc97988ad7a} = s 'Sample Notify Object'
+        ForceRemove {5a3db745-e424-4402-a575-af5e4bc65b1d} = s 'NetKVM SR-IOV Notify Object'
         {
             InProcServer32 = s '%MODULE%'
             {

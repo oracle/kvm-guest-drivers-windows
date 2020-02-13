@@ -19,7 +19,7 @@ extern CComModule _Module;  // required by atlcom.h
 CComModule _Module;
 
 BEGIN_OBJECT_MAP(ObjectMap)
-    OBJECT_ENTRY(CLSID_CMuxNotify, CMuxNotify)
+    OBJECT_ENTRY(CLSID_CNotifyObject, CNotifyObject)
 END_OBJECT_MAP()
 
 /////////////////////////////////////////////////////////////////////////////

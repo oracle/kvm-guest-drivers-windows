@@ -10,18 +10,11 @@
 // To support ioctls from user-mode:
 //
 
-#define LINKNAME_STRING     L"\\DosDevices\\Mux"
-#define NTDEVICE_STRING     L"\\Device\\Mux"
-
-#define  MUX_CUSTOM_EVENT      1
+#define LINKNAME_STRING     L"\\DosDevices\\VioP"
+#define NTDEVICE_STRING     L"\\Device\\VioP"
 
 #define NOTIFY_SIGNATURE       0xAFCDABAB
 
-typedef struct _NOTIFY_CUSTOM_EVENT {
-  ULONG           uSignature;
-  ULONG           uEvent;
-  WCHAR           szMiniport[1];
-} NOTIFY_CUSTOM_EVENT, *PNOTIFY_CUSTOM_EVENT;
 #endif
 
 

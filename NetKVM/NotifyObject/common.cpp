@@ -8,11 +8,9 @@
 
 #include <windows.h>
 #include <stdio.h>
-#include <netcfgn.h>
 #include "common.h"
 
 #ifdef DBG
-
 void
 TraceMsg (
     _In_ LPWSTR szFormat,
