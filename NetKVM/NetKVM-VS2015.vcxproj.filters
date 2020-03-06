@@ -32,6 +32,12 @@
     <Filter Include="Tools">
       <UniqueIdentifier>{37970de9-8475-418f-8090-ca33d7da18da}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Protocol">
+      <UniqueIdentifier>{3bc7fda5-d914-4132-a881-5534a06c5b1c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Protocol">
+      <UniqueIdentifier>{c0b72784-7a26-4934-9142-5895e45dc3d3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Common\DebugData.h">
@@ -103,6 +109,18 @@
     <ClInclude Include="Common\Parandis_DesignPatterns.h">
       <Filter>Header Files\Common</Filter>
     </ClInclude>
+    <ClInclude Include="Protocol\debug.h">
+      <Filter>Header Files\Protocol</Filter>
+    </ClInclude>
+    <ClInclude Include="Protocol\macros.h">
+      <Filter>Header Files\Protocol</Filter>
+    </ClInclude>
+    <ClInclude Include="Protocol\ndisprot.h">
+      <Filter>Header Files\Protocol</Filter>
+    </ClInclude>
+    <ClInclude Include="Protocol\precomp.h">
+      <Filter>Header Files\Protocol</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="wlh\Parandis6.rc">
@@ -161,6 +179,12 @@
     <ClCompile Include="Common\ParaNdis_GuestAnnounce.cpp">
       <Filter>Source Files\Common</Filter>
     </ClCompile>
+    <ClCompile Include="Protocol\ndisbind.cpp">
+      <Filter>Source Files\Protocol</Filter>
+    </ClCompile>
+    <ClCompile Include="Protocol\commu.cpp">
+      <Filter>Source Files\Protocol</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="tools\cleanemptystrings.vbs">
@@ -171,6 +195,11 @@
     </None>
   </ItemGroup>
   <ItemGroup>
+    <Inf Include="$(SourceInfFile)" />
+    <Inf Include="$(SourceInfFile)" />
+    <Inf Include="$(SourceInfFile)" />
+    <Inf Include="$(SourceInfFile)" />
+    <Inf Include="$(SourceInfFile)" />
     <Inf Include="$(SourceInfFile)" />
     <Inf Include="$(SourceInfFile)" />
     <Inf Include="$(SourceInfFile)" />

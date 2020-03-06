@@ -485,6 +485,34 @@ static NDIS_STATUS ParaNdis_OidQuery(PARANDIS_ADAPTER *pContext, tOidDesc *pOid)
     return status;
 }
 
+NDIS_STATUS ParaNdis6_SetOidInformation(
+    PPARANDIS_ADAPTER pContext,
+    PNDIS_OID_REQUEST  pNdisRequest,
+    tOidWhatToDo *pRules,
+    tOidDesc *pOid)
+{
+    NDIS_STATUS  status = NDIS_STATUS_NOT_SUPPORTED;
+
+    if (pRules->Flags & ohfSet)
+    {
+        if (pRules->OidSetProc)
+        {
+            pOid->InformationBuffer = pNdisRequest->DATA.SET_INFORMATION.InformationBuffer;
+            pOid->InformationBufferLength = pNdisRequest->DATA.SET_INFORMATION.InformationBufferLength;
+            pOid->Oid = pNdisRequest->DATA.SET_INFORMATION.Oid;
+            pOid->pBytesWritten = &pNdisRequest->DATA.SET_INFORMATION.BytesRead;
+            pOid->pBytesNeeded = &pNdisRequest->DATA.SET_INFORMATION.BytesNeeded;
+            pOid->pBytesRead = &pNdisRequest->DATA.SET_INFORMATION.BytesRead;
+            status = pRules->OidSetProc(pContext, pOid);
+        }
+        else
+        {
+            DPrintf(pRules->nEntryLevel, "Error: Inconsistent OIDDB, oid %s\n", pRules->name);
+        }
+    }
+    return status;
+}
+
 /**********************************************************
 NDIS required procedure for OID support
 Parameters:
@@ -499,6 +527,9 @@ NDIS_STATUS ParaNdis6_OidRequest(
     PNDIS_OID_REQUEST  pNdisRequest)
 {
     NDIS_STATUS  status = NDIS_STATUS_NOT_SUPPORTED;
+#if SRIOV
+    NDIS_STATUS  fwstatus = NDIS_STATUS_NOT_SUPPORTED;
+#endif
     tOidWhatToDo Rules;
     PARANDIS_ADAPTER *pContext = (PARANDIS_ADAPTER *)miniportAdapterContext;
     tOidDesc _oid;
@@ -512,6 +543,23 @@ NDIS_STATUS ParaNdis6_OidRequest(
                 pNdisRequest->DATA.SET_INFORMATION.Oid,
                 Rules.name,
                 pNdisRequest->DATA.SET_INFORMATION.InformationBufferLength);
+
+#if SRIOV
+    NdisAcquireSpinLock(&pContext->BindingLock);
+    if (pContext->BindingHandle)
+    {
+        NdisReleaseSpinLock(&pContext->BindingLock);
+        UNREFERENCED_PARAMETER(Rules);
+        UNREFERENCED_PARAMETER(_oid);
+
+        if (pNdisRequest->RequestType == NdisRequestSetInformation)
+            //Keep Oid info in VirtIO
+            status = ParaNdis6_SetOidInformation(pContext, pNdisRequest, &Rules, &_oid);
+        fwstatus = OidRequestToVF(miniportAdapterContext, pNdisRequest);
+        return fwstatus;
+    }
+    NdisReleaseSpinLock(&pContext->BindingLock);
+#endif
 
     if (pContext->bSurprizeRemoved) status = NDIS_STATUS_NOT_ACCEPTED;
     else switch(pNdisRequest->RequestType)
@@ -540,23 +588,7 @@ NDIS_STATUS ParaNdis6_OidRequest(
             }
             break;
         case NdisRequestSetInformation:
-            if (Rules.Flags & ohfSet)
-            {
-                if (Rules.OidSetProc)
-                {
-                    _oid.InformationBuffer = pNdisRequest->DATA.SET_INFORMATION.InformationBuffer;
-                    _oid.InformationBufferLength = pNdisRequest->DATA.SET_INFORMATION.InformationBufferLength;
-                    _oid.Oid = pNdisRequest->DATA.SET_INFORMATION.Oid;
-                    _oid.pBytesWritten = &pNdisRequest->DATA.SET_INFORMATION.BytesRead;
-                    _oid.pBytesNeeded = &pNdisRequest->DATA.SET_INFORMATION.BytesNeeded;
-                    _oid.pBytesRead = &pNdisRequest->DATA.SET_INFORMATION.BytesRead;
-                    status = Rules.OidSetProc(pContext, &_oid);
-                }
-                else
-                {
-                    DPrintf(0, "Error: Inconsistent OIDDB, oid %s\n", Rules.name);
-                }
-            }
+            status = ParaNdis6_SetOidInformation(pContext, pNdisRequest, &Rules, &_oid);
             break;
         default:
             DPrintf(Rules.nExitFailLevel, "Error: Unsupported OID type %d, id 0x%X(%s)\n",

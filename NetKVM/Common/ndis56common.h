@@ -362,6 +362,32 @@ struct _tagRxNetDescriptor {
     CParaNdisRX*                   Queue;
 };
 
+#if SRIOV
+typedef struct _NDISPROT_OPEN_CONTEXT NDISPROT_OPEN_CONTEXT, *PNDISPROT_OPEN_CONTEXT;
+typedef struct _tagPARANDIS_ADAPTER PARANDIS_ADAPTER, *PPARANDIS_ADAPTER;
+typedef
+VOID
+(*PREQ_COMPLETE_HANDLER) (
+    IN PNDISPROT_OPEN_CONTEXT           pOpenContext,
+    IN struct _FWD_NDIS_REQUEST         *pFwdRequest,
+    IN NDIS_STATUS                      Status
+    );
+
+// Super-structure for NDIS_REQUEST, to allow us to keep context
+// about requests sent down to a lower binding.
+typedef struct _FWD_NDIS_REQUEST
+{
+    PPARANDIS_ADAPTER           pContext;    // Set iff this is a forwarded
+    NDIS_STATUS                 Status;      // Completion status
+    NDIS_EVENT                  Event;       // Used to block for completion.
+    PREQ_COMPLETE_HANDLER       pCallback;   // Called on completion of request
+    PNDIS_OID_REQUEST           OrigRequest; //Request that originated this request
+    NDIS_OID_REQUEST            Request;
+    ULONG                       Refcount;    // Refcount
+    BOOLEAN                     Cancelled;
+} FWD_NDIS_REQUEST, *PFWD_NDIS_REQUEST;
+#endif
+
 typedef struct _tagPARANDIS_ADAPTER
 {
     NDIS_HANDLE             DriverHandle;
@@ -369,6 +395,16 @@ typedef struct _tagPARANDIS_ADAPTER
     NDIS_HANDLE             InterruptHandle;
     NDIS_HANDLE             BufferListsPool;
     NDIS_HANDLE             BufferListsPoolForArm;
+
+#if SRIOV
+    LIST_ENTRY              Link;
+    NDIS_HANDLE             BindingHandle;
+    FWD_NDIS_REQUEST        Request;
+    ULONG                   LookAhead;
+    ULONG64                 LinkSpeed;
+    NDIS_SPIN_LOCK          BindingLock;
+    PVOID                   pOpenContext;
+#endif
 
     CPciResources           PciResources;
     VirtIODevice            IODevice;
@@ -803,4 +839,25 @@ BOOLEAN ParaNdis_IsSendPossible(PARANDIS_ADAPTER *pContext);
 NDIS_STATUS ParaNdis_ExactSendFailureStatus(PARANDIS_ADAPTER *pContext);
 
 void ParaNdis_PrintIndirectionTable(const NDIS_RECEIVE_SCALE_PARAMETERS* Params);
+
+#if SRIOV
+VOID
+ReturnNetBufferListsToVF(
+    IN NDIS_HANDLE      MiniportAdapterContext,
+    IN PNET_BUFFER_LIST NetBufferLists,
+    IN ULONG            ReturnFlags
+);
+
+VOID
+CancelSendNetBufferListsToVF(
+    IN NDIS_HANDLE MiniportAdapterContext,
+    IN PVOID       CancelId
+);
+
+NDIS_STATUS
+OidRequestToVF(
+    IN    NDIS_HANDLE             MiniportAdapterContext,
+    IN    PNDIS_OID_REQUEST       NdisRequest
+);
+#endif
 #endif

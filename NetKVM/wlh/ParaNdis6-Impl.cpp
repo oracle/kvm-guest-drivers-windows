@@ -372,6 +372,16 @@ static VOID MiniportInterruptDPC(
     PARANDIS_ADAPTER *pContext = (PARANDIS_ADAPTER *)MiniportInterruptContext;
     bool requiresDPCRescheduling;
 
+#if SRIOV
+    NdisAcquireSpinLock(&pContext->BindingLock);
+    if (pContext->BindingHandle)
+    {
+        NdisReleaseSpinLock(&pContext->BindingLock);
+        return;
+    }
+    NdisReleaseSpinLock(&pContext->BindingLock);
+#endif
+
 #if NDIS_SUPPORT_NDIS620
     PNDIS_RECEIVE_THROTTLE_PARAMETERS RxThrottleParameters = (PNDIS_RECEIVE_THROTTLE_PARAMETERS)ReceiveThrottleParameters;
     DEBUG_ENTRY(5);
@@ -440,6 +450,16 @@ static VOID MiniportMSIInterruptDpc(
 {
     PARANDIS_ADAPTER *pContext = (PARANDIS_ADAPTER *)MiniportInterruptContext;
     bool requireDPCRescheduling;
+
+#if SRIOV
+    NdisAcquireSpinLock(&pContext->BindingLock);
+    if (pContext->BindingHandle)
+    {
+        NdisReleaseSpinLock(&pContext->BindingLock);
+        return;
+    }
+    NdisReleaseSpinLock(&pContext->BindingLock);
+#endif
 
 #if NDIS_SUPPORT_NDIS620
     PNDIS_RECEIVE_THROTTLE_PARAMETERS RxThrottleParameters = (PNDIS_RECEIVE_THROTTLE_PARAMETERS)ReceiveThrottleParameters;
@@ -1042,10 +1062,25 @@ VOID ParaNdis6_ReturnNetBufferLists(
     ULONG returnFlags)
 {
     PARANDIS_ADAPTER *pContext = (PARANDIS_ADAPTER *)miniportAdapterContext;
-
-    auto NumNBLs = ParaNdis_CountNBLs(pNBL);
+    auto NumNBLs = 0;
 
     UNREFERENCED_PARAMETER(returnFlags);
+
+#if SRIOV
+    UNREFERENCED_PARAMETER(NumNBLs);
+    NdisAcquireSpinLock(&pContext->BindingLock);
+    if (pContext->BindingHandle)
+    {
+        NdisReleaseSpinLock(&pContext->BindingLock);
+        ReturnNetBufferListsToVF(pContext,
+                                 pNBL,
+                                 returnFlags);
+        return;
+    }
+    NdisReleaseSpinLock(&pContext->BindingLock);
+#endif
+
+    NumNBLs = ParaNdis_CountNBLs(pNBL);
 
     DEBUG_ENTRY(5);
 
@@ -1102,6 +1137,19 @@ VOID ParaNdis6_CancelSendNetBufferLists(
     PARANDIS_ADAPTER *pContext = (PARANDIS_ADAPTER *)miniportAdapterContext;
 
     DEBUG_ENTRY(0);
+
+#if SRIOV
+    NdisAcquireSpinLock(&pContext->BindingLock);
+    if (pContext->BindingHandle)
+    {
+        NdisReleaseSpinLock(&pContext->BindingLock);
+        CancelSendNetBufferListsToVF(miniportAdapterContext,
+                                     pCancelId);
+        return;
+    }
+    NdisReleaseSpinLock(&pContext->BindingLock);
+#endif
+
     for (UINT i = 0; i < pContext->nPathBundles; i++)
     {
         pContext->pPathBundles[i].txPath.CancelNBLs(pCancelId);

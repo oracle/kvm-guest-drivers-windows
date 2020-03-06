@@ -1,0 +1,152 @@
+SR-IOV Live Migration - windows
+Created by Annie Li(annie.li@oracle.com)
+
+
+This page explains 3 possible ways of implementing SR-IOV live migration in
+windows. 3-netdev model is proposed for linux guest, and it implements a new
+module and driver for failover nic which enslaves VF as primary device and
+virtio nic as standby device. However, things are different in windows, and
+3 possible ways are summerized here, M-to-N MUX intermediate driver,
+2-netdev model, nic team. Obviously, 2-netdev model is more appropriate for
+windows guest.
+
+
+1. M-to-N MUX intermediate driver
+
+Windows network driver deployment follows NDIS
+(Network Driver Interface Specification), and network driver has layers
+illustrated in following link,
+https://docs.microsoft.com/en-us/windows-hardware/drivers/network/ndis-intermediate-drivers
+Miniport driver locates on the lowest layer and serves as driver for network
+device, for example, virtio network device, VF, etc.
+
+To implement 3-netdev model in Windows, it is necessary to implement a M-to-N
+MUX NDIS intermediate driver which sits under transport driver and above
+miniport driver, and in this case, it is n/2-to-n. However, implementing
+M-to-N MUX intermediate driver is very complicated, and similar team
+implementation.
+
+Intermediate driver has two edge, lower edge behaves as a protocol driver
+to communicate with lower level miniport driver, topper edge behaves as
+miniport driver to communicate with upper protocol driver. In M-to-N MUX
+model, typically n/2-to-n model here, MUX driver exposes a virtual adapter,
+and the virtual miniport interface has internal binding with its protocol
+interface, this protocol interface binds virtio and vf miniport externally.
+MUX driver has full control of packets communication between protocol driver
+and miniport driver, so this makes it possible to switch path from vf to
+virtio, and vice versa. Another important part is Notify Object, a COM object
+which sits in a Dynamic Link Library, it processes notifications during network
+setup and configuration, such as installation/upgrade of OS and network,
+detach/attach/enable/disable/configuration change of network. Notify Object is
+very complicated in MUX case, and it normally more complicated than than MUX
+miniport and protocol driver. Microsoft provides N:1(not 1:N) MUX intermediate
+driver sample code, it could be reached in following,
+https://github.com/Microsoft/Windows-driver-samples/tree/master/network/ndis/mux
+Both MUX and notify object sample code are N:1 model, and converting from N:1 to
+N/2:N requires lots of work.
+
+
+MUX 1:N model is illustrated in following link,
+https://docs.microsoft.com/en-us/windows-hardware/drivers/network/ndis-mux-intermediate-drivers
+
+Benifit of 3-netdev model, code change required in virtio network driver isn't
+big, and this model could possibly work with older version of virtio network
+driver without any code changes.
+Drawback of 3-netdev model, implementation of complicated MUX and
+notifyobject requires lots of work, and also extra effort for restoring
+network offload.
+
+
+2. 2-netdev model
+
+Hyper-v NetVSC is 2-netdev model which contains two drivers - netvsc and
+netvsc_vfpp. Netvsc serves as miniport driver for hyper-v network device, its
+inf file is wnetvsc.inf. Netvsc_vfpp serves as protocol driver which binds to
+VF miniport driver, its inf file is wnetvsc_vfpp.inf. Protocol driver inf file
+wnetvsc_vfpp.inf(not wnetvsc.inf) has LowerRange ndisvf, and VF's INF file
+contains UpperRandge='ndisvf', this guarantees netvsc_vfpp is the only protocol
+driver which is allowed to bind to VF miniport driver in hyper-v, no other
+protocol drivers(for example, tcp/ip, etc) could be bound to VF miniport driver.
+In this model, no notify object is required due to the exclusive binding between
+netvsc protocol driver and VF miniport driver, which significantly simplifies
+the work, and no need to implement MUX intermediate driver. Per discussion
+with NDIS team, communication between netvsc protocol and netvsc miniport
+driver is through backchannel, see the line between netvsc(protocol) and
+netvsc(miniport) in following Hyper-v NetVSC model.
+
++------------------+              +------------------+
+|      TCPIP       |       +----->+ netvsc(Protocol) |
+|                  |       |      |                  |
++--------+---------+       |      +--------+---------+
+         ^                 |               ^
+         |                 |               |
+         |                 |               |
+         v                 |               v
++--------+---------+       |      +--------+---------+
+| netvsc(Miniport) +<------+      |   VF(Miniport)   |
+|                  |              |                  |
++--------+---------+              +--------+---------+
+         ^                                 ^
+         |                                 |
+         |                                 |
+         v                                 v
++--------+---------+              +--------+---------+
+|Paravirtualized IO|              |     Hardware     |
+|                  |              |                  |
++------------------+              +------------------+
+
+However, this 2-netdev model is strictly limited to hyper-v case. Same VF
+miniport driver behaves differently in hyper-v and non-hyper-v environment.
+Take Intel X540 for an example, Hyper-v PF advertises device id 0x1530 to VF,
+but KVM PF advertises device id 0x1515 for VF. This results in VF miniport
+driver in hyper-v windows vm binds to netvsc_vfpp protocol, but VF miniport
+driver in kvm windows vm binds to different kinds of protocol drivers
+(including tcp/ip). So this makes implementation of 2-netdev model in KVM
+Windows VM more complicated than that in Hyper-V Windows VM. A hack test, simply
+changing device ID of Intel X540 VF from 0x1515 to 0x1530 for Windows guest in
+KVM environment, was run with qemu command option
+"vfio-pci,x-pci-device-id=0x1530". However, the VF driver could not start
+successfully. This is due to Intel VF miniport driver does not support device
+id 0x1530 in KVM Windows VM. In Hyper-v, specific communication mechanism is
+designed between VF and PF, while Linux drivers uses the mailbox mechanism for
+VF-PF communication. Pretending Hyper-v device ID in KVM environment would fail
+during initialization phase of VF miniport driver, refer to
+"2.25 What are the PCI Device IDs for the X540" in following link.
+https://www.intel.com/content/dam/www/public/us/en/documents/faqs/ethernet-x540-faq.pdf
+
+To simulate hyper-v 2-nedev in KVM Windows VM, besides implementation of
+protocol driver, a notify object is necessary. Since Intel X540 VF device ID is
+0x1515 in KVM environment, the protocol driver INF file has to expose LowerRange
+ndis5 in order to bind to Intel X540 VF miniport driver. Meanwhile, nothing
+needs to be changed in virtio driver INF file. Also due to VF device id 0x1515
+and UpperRange "ndis5" of VF miniport drier, any protocol driver which has
+LowerRange ndis5 could bind to VF miniport driver. This is not acceptable for
+2-netdev model VF failover. In order to bind VirtIO protocol driver exclusively
+, Notify Object should be involved to handle binding/unbinding work between
+different protocol drivers and VF miniport driver.
+
+Thoughts about 2-netdev in virtio,
+
+1). Supportting 2-netdev model requires VirtIO network driver to behave as both
+protocol and miniport driver at the same time.
+
+2). Diffrent from Hyper-V implementation, extra work of implementation of notify
+object needs to be done. This notify object is aiming to unbind existing
+protocol driver and bind virtio specific protocol driver, but this notify object
+is simpler than the one for MUX intermediate driver, and it does not deal with
+1:N model.
+
+3). WHQL test consideration - whether Microsoft supports WHQL certification for
+one binary contains both miniport and protocol driver.
+
+
+3. Nic teaming
+
+Since windows server 2012, microsoft supports nic team
+(similar as bond1:n/team in linux), this requires user to configure it in
+userspace. It seems this is not an option since we are chasing to implement this
+feature in kernel level to avoid userspace configuration. However, it is doable
+too if implementing a service to do network configuration automatically, and
+this service could be installed together with virtio driver.
+Note: Nic team is only supported on windows server version since windows server
+2012.

@@ -43,12 +43,12 @@ Arguments:
 Return Value:
 
     NT Status code
-
+    
 --*/
 {
     NDIS_PROTOCOL_DRIVER_CHARACTERISTICS   protocolChar = {0};
     NTSTATUS                        status = STATUS_SUCCESS;
-    NDIS_STRING                     protoName = NDIS_STRING_CONST("NDISPROT");
+    NDIS_STRING                     protoName = NDIS_STRING_CONST("NDISPROT");     
     UNICODE_STRING                  ntDeviceName;
     UNICODE_STRING                  win32DeviceName;
     BOOLEAN                         fSymbolicLink = FALSE;
@@ -56,7 +56,7 @@ Return Value:
     NDIS_HANDLE  ProtocolDriverContext={0};
 
     UNREFERENCED_PARAMETER(pRegistryPath);
-
+	
     DEBUGP(DL_LOUD, ("DriverEntry\n"));
 
     Globals.pDriverObject = pDriverObject;
@@ -78,7 +78,7 @@ Return Value:
                                  FILE_DEVICE_SECURE_OPEN,
                                  FALSE,
                                  &deviceObject);
-
+    
         if (!NT_SUCCESS (status))
         {
             //
@@ -99,7 +99,7 @@ Return Value:
         }
 
         fSymbolicLink = TRUE;
-
+    
         deviceObject->Flags |= DO_DIRECT_IO;
         Globals.ControlDeviceObject = deviceObject;
 
@@ -108,7 +108,7 @@ Return Value:
 
         //
         // Initialize the protocol characterstic structure
-        //
+        //     
 #if (NDIS_SUPPORT_NDIS630)
         {C_ASSERT(sizeof(protocolChar) >= NDIS_SIZEOF_PROTOCOL_DRIVER_CHARACTERISTICS_REVISION_2);}
         protocolChar.Header.Type        = NDIS_OBJECT_TYPE_PROTOCOL_DRIVER_CHARACTERISTICS,
@@ -141,7 +141,7 @@ Return Value:
         //
         // Register as a protocol driver
         //
-
+    
         status = NdisRegisterProtocolDriver(ProtocolDriverContext,           // driver context
                                             &protocolChar,
                                             &Globals.NdisProtocolHandle);
@@ -161,10 +161,10 @@ Return Value:
 
         status = STATUS_SUCCESS;
 
-
+        
     }
     while (FALSE);
-
+       
 
     if (!NT_SUCCESS(status))
     {
@@ -181,14 +181,14 @@ Return Value:
             IoDeleteSymbolicLink(&win32DeviceName);
             fSymbolicLink = FALSE;
         }
-
+        
         if (Globals.NdisProtocolHandle)
         {
             NdisDeregisterProtocolDriver(Globals.NdisProtocolHandle);
             Globals.NdisProtocolHandle = NULL;
-        }
+        }        
     }
-
+    
     return status;
 }
 
@@ -217,7 +217,7 @@ Return Value:
     UNICODE_STRING     win32DeviceName;
     PAGED_CODE();
     UNREFERENCED_PARAMETER(DriverObject);
-
+	
     DEBUGP(DL_LOUD, ("Unload Enter\n"));
 
     //
@@ -226,7 +226,7 @@ Return Value:
     //
     RtlInitUnicodeString(&win32DeviceName, DOS_DEVICE_NAME);
 
-    IoDeleteSymbolicLink(&win32DeviceName);
+    IoDeleteSymbolicLink(&win32DeviceName);           
 
 
     if (Globals.ControlDeviceObject)
@@ -298,7 +298,7 @@ Return Value:
     {
         DEBUGP(DL_INFO, ("DerefOpen: Open %p, Flags %x, ref count is zero!\n",
             pOpenContext, pOpenContext->Flags));
-
+        
         NPROT_ASSERT(pOpenContext->BindingHandle == NULL);
         NPROT_ASSERT(pOpenContext->RefCount == 0);
         NPROT_ASSERT(pOpenContext->pFileObject == NULL);

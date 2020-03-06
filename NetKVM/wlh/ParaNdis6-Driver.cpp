@@ -40,6 +40,7 @@ sdkddkver.h before ntddk.h cause compilation failure in wdm.h and ntddk.h */
 #include "ParaNdis_Debug.h"
 #include "ParaNdis_DebugHistory.h"
 #include "ParaNdis6_Driver.h"
+#include "protocol/precomp.h"
 #include "Trace.h"
 #ifdef NETKVM_WPP_ENABLED
 #include "ParaNdis6-Driver.tmh"
@@ -384,6 +385,16 @@ static NDIS_STATUS ParaNdis6_Initialize(
         ParaNdis_DebugRegisterMiniport(pContext, TRUE);
     }
 
+#if SRIOV
+    if (pContext && status == NDIS_STATUS_SUCCESS)
+    {
+        NPROT_ACQUIRE_LOCK(&Globals.GlobalLock, FALSE);
+        InsertTailList(&Globals.UpAdaptList, &pContext->Link);
+        NPROT_RELEASE_LOCK(&Globals.GlobalLock, FALSE);
+    }
+    NdisAllocateSpinLock(&pContext->BindingLock);
+#endif
+
     DEBUG_EXIT_STATUS(status ? 0 : 2, status);
     return status;
 }
@@ -402,6 +413,9 @@ static VOID ParaNdis6_Halt(NDIS_HANDLE miniportAdapterContext, NDIS_HALT_ACTION 
     ParaNdis_DebugHistory(pContext, hopHalt, NULL, 0, 0, 0);
     ParaNdis_DebugRegisterMiniport(pContext, FALSE);
     NdisFreeMemory(pContext->UnalignedAdapterContext, 0, 0);
+#if SRIOV
+    NdisFreeSpinLock(&pContext->BindingLock);
+#endif
     DEBUG_EXIT_STATUS(2, 0);
 }
 
@@ -466,6 +480,21 @@ static VOID ParaNdis6_SendNetBufferLists(
     PARANDIS_ADAPTER *pContext = (PARANDIS_ADAPTER *)miniportAdapterContext;
     UNREFERENCED_PARAMETER(portNumber);
     UNREFERENCED_PARAMETER(flags);
+
+#if SRIOV
+    NdisAcquireSpinLock(&pContext->BindingLock);
+    if (pContext->BindingHandle)
+    {
+        NdisReleaseSpinLock(&pContext->BindingLock);
+        SendNetBufferListsToVF(miniportAdapterContext,
+                               pNBL,
+                               portNumber,
+                               flags);
+        return;
+    }
+    NdisReleaseSpinLock(&pContext->BindingLock);
+#endif
+
 #ifdef PARANDIS_SUPPORT_RSS
     CNdisPassiveReadAutoLock autoLock(pContext->RSSParameters.rwLock);
     if (pContext->RSS2QueueMap != nullptr)
@@ -1027,6 +1056,16 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pRegistryPath
     LARGE_INTEGER SysTime;
 #endif DEBUG_TIMING
 
+#if SRIOV
+    NDIS_PROTOCOL_DRIVER_CHARACTERISTICS   proChar = { 0 };
+    NDIS_STRING                     protoName = NDIS_STRING_CONST("NDISPROT");
+    UNICODE_STRING                  ntDeviceName;
+    UNICODE_STRING                  win32DeviceName;
+    BOOLEAN                         bSymbolicLink = FALSE;
+    PDEVICE_OBJECT                  deviceObject = NULL;
+    NDIS_HANDLE  ProtocolDriverContext = { 0 };
+#endif
+
 #ifdef NETKVM_WPP_ENABLED
     // Initialize WPP Tracing
     WPP_INIT_TRACING(pDriverObject, pRegistryPath);
@@ -1097,6 +1136,118 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pRegistryPath
         WPP_CLEANUP(pDriverObject);
 #endif // WPP
     }
+    if (status != NDIS_STATUS_SUCCESS)
+        return status;
+
+#if SRIOV
+    DPrintf(0, ("after register miniport driver\n"));
+    do
+    {
+        // Create our device object using which an application can
+        // access NDIS devices.
+        RtlInitUnicodeString(&ntDeviceName, NT_DEVICE_NAME);
+
+        status = IoCreateDevice(pDriverObject,
+            0,
+            &ntDeviceName,
+            FILE_DEVICE_NETWORK,
+            FILE_DEVICE_SECURE_OPEN,
+            FALSE,
+            &deviceObject);
+
+        if (!NT_SUCCESS(status))
+            break;
+
+        RtlInitUnicodeString(&win32DeviceName, DOS_DEVICE_NAME);
+
+        status = IoCreateSymbolicLink(&win32DeviceName, &ntDeviceName);
+
+        if (!NT_SUCCESS(status))
+            break;
+
+        bSymbolicLink = TRUE;
+
+        deviceObject->Flags |= DO_DIRECT_IO;
+        Globals.ControlDeviceObject = deviceObject;
+
+        InitializeListHead(&Globals.UpAdaptList);
+        NPROT_INIT_LOCK(&Globals.GlobalLock);
+
+        // Initialize the protocol characterstic structure
+#if (NDIS_SUPPORT_NDIS630)
+        {C_ASSERT(sizeof(proChar) >= NDIS_SIZEOF_PROTOCOL_DRIVER_CHARACTERISTICS_REVISION_2); }
+        proChar.Header.Type = NDIS_OBJECT_TYPE_PROTOCOL_DRIVER_CHARACTERISTICS,
+            proChar.Header.Size = NDIS_SIZEOF_PROTOCOL_DRIVER_CHARACTERISTICS_REVISION_2;
+        proChar.Header.Revision = NDIS_PROTOCOL_DRIVER_CHARACTERISTICS_REVISION_2;
+#elif (NDIS_SUPPORT_NDIS6)
+        {C_ASSERT(sizeof(proChar) >= NDIS_SIZEOF_PROTOCOL_DRIVER_CHARACTERISTICS_REVISION_1); }
+        proChar.Header.Type = NDIS_OBJECT_TYPE_PROTOCOL_DRIVER_CHARACTERISTICS,
+            proChar.Header.Size = NDIS_SIZEOF_PROTOCOL_DRIVER_CHARACTERISTICS_REVISION_1;
+        proChar.Header.Revision = NDIS_PROTOCOL_DRIVER_CHARACTERISTICS_REVISION_1;
+#endif // NDIS MINIPORT VERSION
+
+        proChar.MajorNdisVersion = NDIS_PROT_MAJOR_VERSION;
+        proChar.MinorNdisVersion = NDIS_PROT_MINOR_VERSION;
+        // Set protocol driver version same as miniport driver
+        proChar.MajorDriverVersion = (UCHAR)(PARANDIS_MAJOR_DRIVER_VERSION & 0xFF);
+        proChar.MinorDriverVersion = (UCHAR)(PARANDIS_MINOR_DRIVER_VERSION & 0xFF);
+
+        proChar.Name = protoName;
+        proChar.SetOptionsHandler = NULL;
+        proChar.OpenAdapterCompleteHandlerEx = NdisprotOpenAdapterComplete;
+        proChar.CloseAdapterCompleteHandlerEx = NdisprotCloseAdapterComplete;
+        proChar.SendNetBufferListsCompleteHandler = NdisprotSendComplete;
+        proChar.OidRequestCompleteHandler = NdisprotRequestComplete;
+        proChar.StatusHandlerEx = NdisprotStatus;
+        proChar.UninstallHandler = NULL;
+        proChar.ReceiveNetBufferListsHandler = NdisprotReceiveNetBufferLists;
+        proChar.NetPnPEventHandler = NdisprotPnPEventHandler;
+        proChar.BindAdapterHandlerEx = NdisprotBindAdapter;
+        proChar.UnbindAdapterHandlerEx = NdisprotUnbindAdapter;
+
+        // Register as a protocol driver
+        status = NdisRegisterProtocolDriver(ProtocolDriverContext,
+            &proChar,
+            &Globals.NdisProtocolHandle);
+
+        if (status != NDIS_STATUS_SUCCESS)
+        {
+            DPrintf(0, ("Failed to register protocol with NDIS\n"));
+            status = STATUS_UNSUCCESSFUL;
+            break;
+        }
+
+        Globals.PartialCancelId = NdisGeneratePartialCancelId();
+        Globals.PartialCancelId <<= ((sizeof(PVOID) - 1) * 8);
+
+        status = STATUS_SUCCESS;
+
+    } while (FALSE);
+
+    if (!NT_SUCCESS(status))
+    {
+        if (deviceObject)
+        {
+            KeEnterCriticalRegion();
+            IoDeleteDevice(deviceObject);
+            KeLeaveCriticalRegion();
+            Globals.ControlDeviceObject = NULL;
+        }
+
+        if (bSymbolicLink)
+        {
+            IoDeleteSymbolicLink(&win32DeviceName);
+            bSymbolicLink = FALSE;
+        }
+
+        if (Globals.NdisProtocolHandle)
+        {
+            NdisDeregisterProtocolDriver(Globals.NdisProtocolHandle);
+            Globals.NdisProtocolHandle = NULL;
+        }
+    }
+#endif
+
     return status;
 }
 

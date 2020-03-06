@@ -7,7 +7,12 @@
 
 #include "precomp.h"
 
-#define __FILENUMBER 'DNIB'
+#if SRIOV
+NDISPROT_GLOBALS    Globals = {0};
+
+#if DBG
+INT                 ndisprotDebugLevel = DL_WARN;
+#endif
 
 NDIS_STATUS
 NdisprotBindAdapter(
@@ -15,166 +20,62 @@ NdisprotBindAdapter(
     IN NDIS_HANDLE                  BindContext,
     IN PNDIS_BIND_PARAMETERS        BindParameters
     )
-/*++
-
-Routine Description:
-
-    Protocol Bind Handler entry point called when NDIS wants us
-    to bind to an adapter. We go ahead and set up a binding.
-    An OPEN_CONTEXT structure is allocated to keep state about
-    this binding.
-
-Arguments:
-
-
-Return Value:
-
-    None
-
---*/
 {
-    PNDISPROT_OPEN_CONTEXT          pOpenContext;
+    PNDISPROT_OPEN_CONTEXT          pOpenContext = NULL;
     NDIS_STATUS                     Status;
 
     UNREFERENCED_PARAMETER(ProtocolDriverContext);
 
-    do
+    Status = NdisAllocateMemoryWithTag((PVOID *)&pOpenContext,
+                                       sizeof(NDISPROT_OPEN_CONTEXT),
+                                       NPROT_ALLOC_TAG);
+    if (Status != NDIS_STATUS_SUCCESS)
     {
-        //
-        //  Allocate our context for this open.
-        //
-        NPROT_ALLOC_MEM(pOpenContext, sizeof(NDISPROT_OPEN_CONTEXT));
-        if (pOpenContext == NULL)
-        {
-            Status = NDIS_STATUS_RESOURCES;
-            break;
-        }
-
-        //
-        //  Initialize it.
-        //
-        NPROT_ZERO_MEM(pOpenContext, sizeof(NDISPROT_OPEN_CONTEXT));
-        NPROT_SET_SIGNATURE(pOpenContext, oc);
-
-        NPROT_INIT_LOCK(&pOpenContext->Lock);
-        NPROT_INIT_LIST_HEAD(&pOpenContext->PendedReads);
-        NPROT_INIT_LIST_HEAD(&pOpenContext->PendedWrites);
-        NPROT_INIT_LIST_HEAD(&pOpenContext->RecvNetBufListQueue);
-        NPROT_INIT_EVENT(&pOpenContext->PoweredUpEvent);
-
-
-        //
-        //  Start off by assuming that the device below is powered up.
-        //
-        NPROT_SIGNAL_EVENT(&pOpenContext->PoweredUpEvent);
-
-        NPROT_REF_OPEN(pOpenContext); // Bind
-
-        //
-        //  Add it to the global list.
-        //
-        NPROT_ACQUIRE_LOCK(&Globals.GlobalLock, FALSE);
-
-        NPROT_INSERT_TAIL_LIST(&Globals.OpenList,
-                             &pOpenContext->Link);
-
-        NPROT_RELEASE_LOCK(&Globals.GlobalLock, FALSE);
-
-        pOpenContext->State = NdisprotInitializing;
-
-        //
-        // Here we reference the open context to make sure that even if
-        // ndisprotCreateBinding failed, open context is still valid
-        //
-        NPROT_REF_OPEN(pOpenContext);
-        //
-        //  Set up the NDIS binding, ndisprotCreateBinding does the cleanup for the
-        //  binding if somehow it fails to create the binding, the
-        //
-        Status = ndisprotCreateBinding(
-                     pOpenContext,
-                     BindParameters,
-                     BindContext,
-                     (PUCHAR)BindParameters->AdapterName->Buffer,
-                     BindParameters->AdapterName->Length);
-
-
-        if (Status != NDIS_STATUS_SUCCESS)
-        {
-            //
-            // Dereference the open context because we referenced it before we call
-            // ndisprotCreateBinding
-            //
-            NPROT_DEREF_OPEN(pOpenContext);
-            break;
-        }
-        //
-        // Dereference the open context because we referenced it before we call
-        // ndisprotCreateBinding
-        //
-        NPROT_DEREF_OPEN(pOpenContext);
+        DEBUGP(DL_ERROR,
+              ("[%s]: NdisAllocateMemoryWithTag fail with %x\n",
+              __FUNCTION__, Status));
+        return Status;
     }
-    while (FALSE);
+    NdisZeroMemory(pOpenContext, sizeof(NDISPROT_OPEN_CONTEXT));
+    NPROT_SET_SIGNATURE(pOpenContext, oc);
+    NPROT_INIT_LOCK(&pOpenContext->Lock);
+    //This is for Binding reference, shutdown binding does Deref
+    ndisprotRefOpen(pOpenContext);
+    pOpenContext->State = NdisprotInitializing;
+    ndisprotRefOpen(pOpenContext);
+    Status = ndisprotCreateBinding(pOpenContext,
+                                   BindParameters,
+                                   BindContext,
+                                   (PUCHAR)BindParameters->AdapterName->Buffer,
+                                   BindParameters->AdapterName->Length);
+    ndisprotDerefOpen(pOpenContext);
 
     return Status;
-
 }
 
+/*
+ * Completion routine called by NDIS if our call to NdisOpenAdapterEx
+ * pends. Wake up the thread that called NdisOpenAdapterEx.
+ */
 VOID
 NdisprotOpenAdapterComplete(
     IN NDIS_HANDLE                  ProtocolBindingContext,
     IN NDIS_STATUS                  Status
     )
-/*++
-
-Routine Description:
-
-    Completion routine called by NDIS if our call to NdisOpenAdapterEx
-    pends. Wake up the thread that called NdisOpenAdapterEx.
-
-Arguments:
-
-    ProtocolBindingContext - pointer to open context structure
-    Status - status of the open
-
-Return Value:
-
-    None
-
---*/
 {
     PNDISPROT_OPEN_CONTEXT           pOpenContext;
 
     pOpenContext = (PNDISPROT_OPEN_CONTEXT)ProtocolBindingContext;
     NPROT_STRUCT_ASSERT(pOpenContext, oc);
-
     pOpenContext->BindStatus = Status;
-
     NPROT_SIGNAL_EVENT(&pOpenContext->BindEvent);
 }
-
 
 NDIS_STATUS
 NdisprotUnbindAdapter(
     IN NDIS_HANDLE                  UnbindContext,
     IN NDIS_HANDLE                  ProtocolBindingContext
     )
-/*++
-
-Routine Description:
-
-    NDIS calls this when it wants us to close the binding to an adapter.
-
-Arguments:
-
-    ProtocolBindingContext - pointer to open context structure
-    UnbindContext - to use in NdisCompleteUnbindAdapter if we return pending
-
-Return Value:
-
-    pending or success
-
---*/
 {
     PNDISPROT_OPEN_CONTEXT           pOpenContext;
 
@@ -183,380 +84,334 @@ Return Value:
     pOpenContext = (PNDISPROT_OPEN_CONTEXT)ProtocolBindingContext;
     NPROT_STRUCT_ASSERT(pOpenContext, oc);
 
-    //
-    //  Mark this open as having seen an Unbind.
-    //
     NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
-
-    NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_UNBIND_FLAGS, NPROTO_UNBIND_RECEIVED);
-
-    //
-    //  In case we had threads blocked for the device below to be powered
-    //  up, wake them up.
-    //
-    NPROT_SIGNAL_EVENT(&pOpenContext->PoweredUpEvent);
-
-    NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
-
+    NPROT_SET_FLAGS(pOpenContext->Flags,
+                    NPROTO_UNBIND_FLAGS, NPROTO_UNBIND_RECEIVED);
     pOpenContext->State = NdisprotClosing;
+    NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
 
     ndisprotShutdownBinding(pOpenContext);
 
     return NDIS_STATUS_SUCCESS;
 }
 
-
-
+/*
+ * Called by NDIS to complete a pended call to NdisCloseAdapter.
+ * We wake up the thread waiting for this completion.
+ */
 VOID
 NdisprotCloseAdapterComplete(
     IN NDIS_HANDLE                  ProtocolBindingContext
     )
-/*++
-
-Routine Description:
-
-    Called by NDIS to complete a pended call to NdisCloseAdapter.
-    We wake up the thread waiting for this completion.
-
-Arguments:
-
-    ProtocolBindingContext - pointer to open context structure
-
-Return Value:
-
-    None
-
---*/
 {
     PNDISPROT_OPEN_CONTEXT           pOpenContext;
 
     pOpenContext = (PNDISPROT_OPEN_CONTEXT)ProtocolBindingContext;
     NPROT_STRUCT_ASSERT(pOpenContext, oc);
-
     NPROT_SIGNAL_EVENT(&pOpenContext->BindEvent);
+}
+
+/*
+ * Search the global list for an upper device context structure
+ * that has same mac address with underlying bound device, and
+ * return a pointer to it.
+ */
+PPARANDIS_ADAPTER
+ndisprotGetUpperDevice(
+    PNDIS_BIND_PARAMETERS BindParameters
+)
+{
+    PPARANDIS_ADAPTER           pContext;
+    PLIST_ENTRY                 pEnt;
+
+    pContext = NULL;
+
+    NPROT_ACQUIRE_LOCK(&Globals.GlobalLock, FALSE);
+    for(pEnt = Globals.UpAdaptList.Flink;
+        pEnt != &Globals.UpAdaptList;
+        pEnt = pEnt->Flink)
+    {
+        pContext = CONTAINING_RECORD(pEnt, PARANDIS_ADAPTER, Link);
+
+        for(int i = 0; i < ETH_HARDWARE_ADDRESS_SIZE; i++)
+            DEBUGP(DL_INFO,
+                  ("[%s]: MacAddresschar1 0x%x bind MacAddresschar2  0x%x \n",
+                   __FUNCTION__,
+                   pContext->CurrentMacAddress[i],
+                   BindParameters->CurrentMacAddress[i]));
+
+        //Check if this has the mac address we are looking for.
+        if (NdisEqualMemory(pContext->CurrentMacAddress,
+                            BindParameters->CurrentMacAddress,
+                            ETH_HARDWARE_ADDRESS_SIZE))
+        {
+            DEBUGP(DL_INFO,
+                  ("[%s]: Find matched VirtIO device with same mac address\n",
+                   __FUNCTION__));
+            break;
+        }
+        pContext = NULL;
+    }
+    NPROT_RELEASE_LOCK(&Globals.GlobalLock, FALSE);
+
+    return pContext;
+}
+
+/*
+ * Handle completion of an NDIS request that was originally
+ * submitted to VirtIO miniport and was forwarded down
+ * to the lower VF binding.
+ */
+VOID
+PtCompleteForwardedRequest(
+    IN PNDISPROT_OPEN_CONTEXT       pOpenContext,
+    IN PFWD_NDIS_REQUEST            pFwdNdisRequest,
+    IN NDIS_STATUS                  Status
+)
+{
+    PPARANDIS_ADAPTER   pContext = NULL;
+    PNDIS_OID_REQUEST   pNdisRequest = &pFwdNdisRequest->Request;
+    NDIS_OID            Oid;
+    PNDIS_OID_REQUEST   OrigRequest = NULL;
+    BOOLEAN             bCompleteRequest = FALSE;
+
+    UNREFERENCED_PARAMETER(pOpenContext);
+    pContext = (PPARANDIS_ADAPTER)pOpenContext->pContext;
+
+    ASSERT(pContext != NULL);
+    ASSERT(pFwdNdisRequest == &pContext->Request);
+    if (Status != NDIS_STATUS_SUCCESS)
+    {
+        DEBUGP(DL_ERROR,
+              ("[%s]: pOpenContext %p, OID %x, Status %x\n",
+               __FUNCTION__,
+               pContext,
+               pFwdNdisRequest->Request.DATA.QUERY_INFORMATION.Oid,
+               Status));
+    }
+
+    pFwdNdisRequest->Refcount--;
+    if (pFwdNdisRequest->Refcount == 0)
+    {
+        bCompleteRequest = TRUE;
+        OrigRequest = pFwdNdisRequest->OrigRequest;
+        pFwdNdisRequest->OrigRequest = NULL;
+    }
+
+    if (!bCompleteRequest)
+    {
+        return;
+    }
+
+    //Complete the original request.
+    switch(pNdisRequest->RequestType)
+    {
+    case NdisRequestQueryInformation:
+    case NdisRequestQueryStatistics:
+        OrigRequest->DATA.QUERY_INFORMATION.BytesWritten =
+            pNdisRequest->DATA.QUERY_INFORMATION.BytesWritten;
+        OrigRequest->DATA.QUERY_INFORMATION.BytesNeeded =
+            pNdisRequest->DATA.QUERY_INFORMATION.BytesNeeded;
+
+        //Before completing the request, do any necessary post-processing.
+        Oid = pNdisRequest->DATA.QUERY_INFORMATION.Oid;
+        if (Status == NDIS_STATUS_SUCCESS)
+        {
+            if (Oid == OID_GEN_LINK_SPEED)
+            {
+                NdisMoveMemory(&pContext->LinkSpeed,
+                    pNdisRequest->DATA.QUERY_INFORMATION.InformationBuffer,
+                    sizeof(ULONG));
+            }
+        }
+        break;
+    case NdisRequestSetInformation:
+        OrigRequest->DATA.SET_INFORMATION.BytesRead =
+            pNdisRequest->DATA.SET_INFORMATION.BytesRead;
+        OrigRequest->DATA.QUERY_INFORMATION.BytesNeeded =
+            pNdisRequest->DATA.SET_INFORMATION.BytesNeeded;
+
+        //Before completing the request, cache relevant information
+        //in our structure.
+        if (Status == NDIS_STATUS_SUCCESS)
+        {
+            Oid = pNdisRequest->DATA.SET_INFORMATION.Oid;
+            switch(Oid)
+            {
+            case OID_GEN_CURRENT_LOOKAHEAD:
+                NdisMoveMemory(&pContext->LookAhead,
+                    pNdisRequest->DATA.SET_INFORMATION.InformationBuffer,
+                    sizeof(ULONG));
+                break;
+            case OID_GEN_CURRENT_PACKET_FILTER:
+                DEBUGP(DL_INFO,
+                      ("[%s]: packetfilter 0x%x\n",
+                       __FUNCTION__,
+                       *((PULONG)pNdisRequest->DATA.SET_INFORMATION.InformationBuffer)));
+                pOpenContext->PacketFilter =
+               *((PULONG)pNdisRequest->DATA.SET_INFORMATION.InformationBuffer);
+                break;
+            default:
+                break;
+            }
+        }
+        break;
+    default:
+        ASSERT(FALSE);
+        break;
+    }
+    NdisMOidRequestComplete(pContext->MiniportHandle, OrigRequest, Status);
 }
 
 NDIS_STATUS
 NdisprotPnPEventHandler(
     IN NDIS_HANDLE                  ProtocolBindingContext,
     IN PNET_PNP_EVENT_NOTIFICATION  pNetPnPEventNotification
-    )
-/*++
-
-Routine Description:
-
-    Called by NDIS to notify us of a PNP event. The most significant
-    one for us is power state change.
-
-Arguments:
-
-    ProtocolBindingContext - pointer to open context structure
-                this is NULL for global reconfig events.
-
-    pNetPnPEventNotification - pointer to the PNP event notification
-
-Return Value:
-
-    Our processing status for the PNP event.
-
---*/
+)
 {
     PNDISPROT_OPEN_CONTEXT            pOpenContext;
     NDIS_STATUS                       Status = NDIS_STATUS_SUCCESS;
-    PUCHAR                            Buffer = NULL;
-    ULONG                             BufferLength = 0;
-    PNDIS_PROTOCOL_RESTART_PARAMETERS RestartParameters = NULL;
 
     pOpenContext = (PNDISPROT_OPEN_CONTEXT)ProtocolBindingContext;
-
-    switch (pNetPnPEventNotification->NetPnPEvent.NetEvent)
+    switch(pNetPnPEventNotification->NetPnPEvent.NetEvent)
     {
-        case NetEventSetPower:
-            NPROT_STRUCT_ASSERT(pOpenContext, oc);
-            pOpenContext->PowerState = *(PNET_DEVICE_POWER_STATE)pNetPnPEventNotification->NetPnPEvent.Buffer;
-
-            if (pOpenContext->PowerState > NetDeviceStateD0)
-            {
-                //
-                //  The device below is transitioning to a low power state.
-                //  Block any threads attempting to query the device while
-                //  in this state.
-                //
-                NPROT_INIT_EVENT(&pOpenContext->PoweredUpEvent);
-
-                //
-                // There is no need to wait for pending I/O here.
-                // We wait for it in the NetEventPause handler.
-                //
-
-                //
-                //  Return any receives that we had queued up.
-                //
-                ndisprotFlushReceiveQueue(pOpenContext);
-                DEBUGP(DL_INFO, ("PnPEvent: Open %p, SetPower to %d\n",
-                    pOpenContext, pOpenContext->PowerState));
-            }
-            else
-            {
-                //
-                //  The device below is powered up.
-                //
-                DEBUGP(DL_INFO, ("PnPEvent: Open %p, SetPower ON: %d\n",
-                    pOpenContext, pOpenContext->PowerState));
-                NPROT_SIGNAL_EVENT(&pOpenContext->PoweredUpEvent);
-            }
-
-            Status = NDIS_STATUS_SUCCESS;
-            break;
-
-        case NetEventQueryPower:
-            Status = NDIS_STATUS_SUCCESS;
-            break;
-
-        case NetEventBindsComplete:
-            NPROT_SIGNAL_EVENT(&Globals.BindsComplete);
-            Status = NDIS_STATUS_SUCCESS;
-            break;
-
-        case NetEventPause:
-            //
-            // Wait all sends to be complete.
-            //
-
-            NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
-            pOpenContext->State = NdisprotPausing;
-
-            //
-            // we could also complete the PnP Event asynchrously.
-            //
-            while (TRUE)
-            {
-                if (pOpenContext->PendedSendCount == 0)
-                    break;
-
-                NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
-                DEBUGP(DL_INFO, ("PnPEvent: Open %p, outstanding count is %d\n", pOpenContext,
-                    pOpenContext->PendedSendCount));
-
-                NdisMSleep(100000);    // 100 ms.
-
-                NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
-            }
-
-            NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
-            //
-            // Return all queued receives.
-            //
-            ndisprotFlushReceiveQueue(pOpenContext);
-            pOpenContext->State = NdisprotPaused;
-
-            break;
-
-        case NetEventRestart:
-
-
-            ASSERT(pOpenContext->State == NdisprotPaused);
-            //
-            // Get the updated attributes
-            //
-            Buffer = pNetPnPEventNotification->NetPnPEvent.Buffer;
-            if (Buffer == NULL)
-            {
-                pOpenContext->State = NdisprotRunning;
+    case NetEventSetPower:
+        NPROT_STRUCT_ASSERT(pOpenContext, oc);
+        DEBUGP(DL_INFO,
+              ("[%s]: Open %p, SetPower to %d\n",
+               __FUNCTION__, pOpenContext,
+               *(PNET_DEVICE_POWER_STATE)pNetPnPEventNotification->NetPnPEvent.Buffer));
+        Status = NDIS_STATUS_SUCCESS;
+        break;
+    case NetEventQueryPower:
+    case NetEventBindsComplete:
+        Status = NDIS_STATUS_SUCCESS;
+        break;
+    case NetEventPause:
+        NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
+        pOpenContext->State = NdisprotPausing;
+        while (TRUE)
+        {
+            if (pOpenContext->PendedSendCount == 0)
                 break;
-            }
-            BufferLength = pNetPnPEventNotification->NetPnPEvent.BufferLength;
 
-            ASSERT(BufferLength  == sizeof(NDIS_PROTOCOL_RESTART_PARAMETERS));
-
-            RestartParameters = (PNDIS_PROTOCOL_RESTART_PARAMETERS)Buffer;
-            ndisprotRestart(pOpenContext,RestartParameters);
-
-
-            pOpenContext->State = NdisprotRunning;
-            break;
-
-        case NetEventQueryRemoveDevice:
-        case NetEventCancelRemoveDevice:
-        case NetEventReconfigure:
-        case NetEventBindList:
-        case NetEventPnPCapabilities:
-            Status = NDIS_STATUS_SUCCESS;
-            break;
-
-        default:
-            Status = NDIS_STATUS_NOT_SUPPORTED;
-            break;
+            DEBUGP(DL_INFO,
+                  ("[%s]: Open %p, outstanding count is %d\n",
+                   __FUNCTION__,
+                   pOpenContext,
+                   pOpenContext->PendedSendCount));
+            NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
+            NdisMSleep(100000);    // 100 ms.
+            NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
+        }
+        pOpenContext->State = NdisprotPaused;
+        NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
+        break;
+    case NetEventRestart:
+        NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
+        ASSERT(pOpenContext->State == NdisprotPaused);
+        pOpenContext->State = NdisprotRunning;
+        NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
+        break;
+    case NetEventQueryRemoveDevice:
+    case NetEventCancelRemoveDevice:
+    case NetEventReconfigure:
+    case NetEventBindList:
+    case NetEventPnPCapabilities:
+        Status = NDIS_STATUS_SUCCESS;
+        break;
+    default:
+        Status = NDIS_STATUS_NOT_SUPPORTED;
+        break;
     }
+    DEBUGP(DL_INFO,
+          ("[%s]: Open %p, Event %d, Status %x\n",
+           __FUNCTION__,
+           pOpenContext,
+           pNetPnPEventNotification->NetPnPEvent.NetEvent, Status));
 
-    DEBUGP(DL_INFO, ("PnPEvent: Open %p, Event %d, Status %x\n",
-            pOpenContext, pNetPnPEventNotification->NetPnPEvent.NetEvent, Status));
-
-    return (Status);
+    return Status;
 }
 
 NDIS_STATUS
 ndisprotCreateBinding(
-    IN PNDISPROT_OPEN_CONTEXT                   pOpenContext,
-    IN PNDIS_BIND_PARAMETERS                    BindParameters,
-    IN NDIS_HANDLE                              BindContext,
-    _In_reads_bytes_(BindingInfoLength) IN PUCHAR    pBindingInfo,
-    IN ULONG                                    BindingInfoLength
+    IN PNDISPROT_OPEN_CONTEXT         pOpenContext,
+    IN PNDIS_BIND_PARAMETERS          BindParameters,
+    IN NDIS_HANDLE                    BindContext,
+    IN PUCHAR                         pBindingInfo,
+    IN ULONG                          BindingInfoLength
     )
-/*++
-
-Routine Description:
-
-    Utility function to create an NDIS binding to the indicated device,
-    if no such binding exists.
-
-    Here is where we also allocate additional resources (e.g. packet pool)
-    for the binding.
-
-    NOTE: this function blocks and finishes synchronously.
-
-Arguments:
-
-    pOpenContext - pointer to open context block
-    BindParameters - pointer to NDIS_BIND_PARAMETERS
-    BindConext - pointer to NDIS bind context
-    pBindingInfo - pointer to unicode device name string
-    BindingInfoLength - length in bytes of the above.
-
-Return Value:
-
-    NDIS_STATUS_SUCCESS if a binding was successfully set up.
-    NDIS_STATUS_XXX error code on any failure.
-
---*/
 {
     NDIS_STATUS              Status;
     NDIS_MEDIUM              MediumArray[1] = {NdisMedium802_3};
     NDIS_OPEN_PARAMETERS     OpenParameters;
-    NET_BUFFER_LIST_POOL_PARAMETERS PoolParameters;
     UINT                     SelectedMediumIndex;
-    BOOLEAN                  fOpenComplete = FALSE;
-    ULONG                    GenericUlong = 0;
-    NET_FRAME_TYPE           FrameTypeArray[2] = {NDIS_ETH_TYPE_802_1X, NDIS_ETH_TYPE_802_1Q};
-#if DBG
-    PNDISPROT_OPEN_CONTEXT   pTmpOpenContext;
-#endif
+    BOOLEAN                  bOpenComplete = FALSE;
+    NET_FRAME_TYPE           FrameTypeArray[2] =
+                             {NDIS_ETH_TYPE_802_1X, NDIS_ETH_TYPE_802_1Q};
+    PPARANDIS_ADAPTER        pContext;
+    ULONG                    PacketFiler;
+    ULONG                    BytesWritten;
 
-    DEBUGP(DL_LOUD, ("CreateBinding: open %p/%x, device [%s]\n",
-                pOpenContext, pOpenContext->Flags, pBindingInfo));
+    DEBUGP(DL_INFO,
+          ("[%s]: open %p/%x, device [%s]\n",
+           __FUNCTION__,
+           pOpenContext,
+           pOpenContext->Flags,
+           pBindingInfo));
 
     Status = NDIS_STATUS_SUCCESS;
-
     do
     {
-        //
-        //  Check if we already have a binding to this device.
-        //
-#if DBG
-        pTmpOpenContext = ndisprotLookupDevice(pBindingInfo, BindingInfoLength);
-
-        ASSERT(pTmpOpenContext == NULL);
-
-        if (pTmpOpenContext != NULL)
-        {
-            DEBUGP(DL_WARN,
-                ("CreateBinding: Binding to device %ws already exists on open %p\n",
-                    pTmpOpenContext->DeviceName.Buffer, pTmpOpenContext));
-
-            NPROT_DEREF_OPEN(pTmpOpenContext);  // temp ref added by Lookup
-            Status = NDIS_STATUS_FAILURE;
-            break;
-        }
-#endif
-
         NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
-
-        NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_BIND_FLAGS, NPROTO_BIND_OPENING);
-
+        NPROT_SET_FLAGS(pOpenContext->Flags,
+                        NPROTO_BIND_FLAGS, NPROTO_BIND_OPENING);
         NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
 
-        //
-        //  Copy in the device name. Add room for a NULL terminator.
-        //
-        NPROT_ALLOC_MEM(pOpenContext->DeviceName.Buffer, BindingInfoLength + sizeof(WCHAR));
+        //Copy in the device name. Add room for a NULL terminator.
+        pOpenContext->DeviceName.Buffer = NULL;
+        NdisAllocateMemoryWithTag((PVOID *)&pOpenContext->DeviceName.Buffer,
+                                  BindingInfoLength + sizeof(WCHAR),
+                                  NPROT_ALLOC_TAG);
         if (pOpenContext->DeviceName.Buffer == NULL)
         {
-            DEBUGP(DL_WARN, ("CreateBinding: failed to alloc device name buf (%d bytes)\n",
-                BindingInfoLength + sizeof(WCHAR)));
+            DEBUGP(DL_WARN,
+                  ("[%s]: failed to alloc device name buf (%d bytes)\n",
+                   __FUNCTION__,
+                   BindingInfoLength + sizeof(WCHAR)));
             Status = NDIS_STATUS_RESOURCES;
             break;
         }
 
-        NPROT_COPY_MEM(pOpenContext->DeviceName.Buffer, pBindingInfo, BindingInfoLength);
+        NdisMoveMemory(pOpenContext->DeviceName.Buffer,
+                       pBindingInfo,
+                       BindingInfoLength);
 #pragma prefast(suppress: 12009, "DeviceName length will not cause overflow")
         *(PWCHAR)((PUCHAR)pOpenContext->DeviceName.Buffer + BindingInfoLength) = L'\0';
-        NdisInitUnicodeString(&pOpenContext->DeviceName, pOpenContext->DeviceName.Buffer);
+        NdisInitUnicodeString(&pOpenContext->DeviceName,
+                              pOpenContext->DeviceName.Buffer);
 
-        NdisZeroMemory(&PoolParameters, sizeof(NET_BUFFER_LIST_POOL_PARAMETERS));
-
-        PoolParameters.Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
-        PoolParameters.Header.Revision = NET_BUFFER_LIST_POOL_PARAMETERS_REVISION_1;
-        PoolParameters.Header.Size = sizeof(PoolParameters);
-        PoolParameters.ProtocolId = NDIS_PROTOCOL_ID_IPX ;
-        PoolParameters.ContextSize = sizeof(NPROT_SEND_NETBUFLIST_RSVD);
-        PoolParameters.fAllocateNetBuffer = TRUE;
-        PoolParameters.PoolTag = NPROT_ALLOC_TAG;
-
-        pOpenContext->SendNetBufferListPool = NdisAllocateNetBufferListPool(
-                                                    Globals.NdisProtocolHandle,
-                                                    &PoolParameters);
-        if (pOpenContext->SendNetBufferListPool == NULL)
-        {
-            DEBUGP(DL_WARN, ("CreateBinding: failed to alloc"
-                    " send net buffer list pool\n"));
-
-            Status = NDIS_STATUS_RESOURCES;
-            break;
-        }
-
-        PoolParameters.ContextSize = 0;
-
-        pOpenContext->RecvNetBufferListPool = NdisAllocateNetBufferListPool(
-                                                    Globals.NdisProtocolHandle,
-                                                    &PoolParameters);
-
-        if (pOpenContext->RecvNetBufferListPool == NULL)
-        {
-            DEBUGP(DL_WARN, ("CreateBinding: failed to alloc"
-                    " recv net buffer list pool.\n"));
-
-            Status = NDIS_STATUS_RESOURCES;
-            break;
-        }
-
-        //
-        //  Assume that the device is powered up.
-        //
         pOpenContext->PowerState = NetDeviceStateD0;
-
-        //
-        //  Open the adapter.
-        //
         NPROT_INIT_EVENT(&pOpenContext->BindEvent);
 
-        NPROT_ZERO_MEM(&OpenParameters, sizeof(NDIS_OPEN_PARAMETERS));
+        NdisZeroMemory(&OpenParameters, sizeof(NDIS_OPEN_PARAMETERS));
         OpenParameters.Header.Revision = NDIS_OPEN_PARAMETERS_REVISION_1;
         OpenParameters.Header.Size = sizeof(NDIS_OPEN_PARAMETERS);
         OpenParameters.Header.Type = NDIS_OBJECT_TYPE_OPEN_PARAMETERS;
         OpenParameters.AdapterName = BindParameters->AdapterName;
         OpenParameters.MediumArray = &MediumArray[0];
-        OpenParameters.MediumArraySize = sizeof(MediumArray) / sizeof(NDIS_MEDIUM);
+        OpenParameters.MediumArraySize =
+                       sizeof(MediumArray) / sizeof(NDIS_MEDIUM);
         OpenParameters.SelectedMediumIndex = &SelectedMediumIndex;
         OpenParameters.FrameTypeArray = &FrameTypeArray[0];
-        OpenParameters.FrameTypeArraySize = sizeof(FrameTypeArray) / sizeof(NET_FRAME_TYPE);
+        OpenParameters.FrameTypeArraySize =
+                       sizeof(FrameTypeArray) / sizeof(NET_FRAME_TYPE);
 
-
-        NDIS_DECLARE_PROTOCOL_OPEN_CONTEXT(NDISPROT_OPEN_CONTEXT);
         Status = NdisOpenAdapterEx(Globals.NdisProtocolHandle,
-                          (NDIS_HANDLE)pOpenContext,
-                           &OpenParameters,
-                           BindContext,
-                           &pOpenContext->BindingHandle);
+                                   (NDIS_HANDLE)pOpenContext,
+                                   &OpenParameters,
+                                   BindContext,
+                                   &pOpenContext->BindingHandle);
 
         if (Status == NDIS_STATUS_PENDING)
         {
@@ -566,67 +421,83 @@ Return Value:
 
         if (Status != NDIS_STATUS_SUCCESS)
         {
-            DEBUGP(DL_WARN, ("CreateBinding: NdisOpenAdapter (%ws) failed: %x\n",
-                pOpenContext->DeviceName.Buffer, Status));
+            DEBUGP(DL_WARN,
+                  ("[%s]: NdisOpenAdapter (%ws) failed: %x\n",
+                   __FUNCTION__,
+                   pOpenContext->DeviceName.Buffer,
+                   Status));
             break;
         }
 
         pOpenContext->State = NdisprotPaused;
+        bOpenComplete = TRUE;
 
-        fOpenComplete = TRUE;
-
-        //
-        //  Get the friendly name for the adapter. It is not fatal for this
-        //  to fail.
-        //
-        (VOID)NdisQueryAdapterInstanceName(
-                &pOpenContext->DeviceDescr,
-                pOpenContext->BindingHandle
-                );
+        (VOID)NdisQueryAdapterInstanceName(&pOpenContext->DeviceDescr,
+                                           pOpenContext->BindingHandle);
 
         NdisMoveMemory(&pOpenContext->CurrentAddress[0],
                        BindParameters->CurrentMacAddress,
                        NPROT_MAC_ADDR_LEN);
-        //
-        //  Get MAC options.
-        //
-        pOpenContext->MacOptions = BindParameters->MacOptions;
 
-
-        //
-        //  Get the max frame size.
-        //
-        pOpenContext->MaxFrameSize = BindParameters->MtuSize;
-
-        //
-        //  Get the media connect status.
-        //
-        GenericUlong = BindParameters->MediaConnectState;
-
-        if (GenericUlong == NdisMediaStateConnected)
+        //Get upper VirtIO network interface of same mac address,
+        //and set its pOpenContext of underlying binding adapter.
+        pContext = ndisprotGetUpperDevice(BindParameters);
+        if (pContext)
         {
-            NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_MEDIA_FLAGS, NPROTO_MEDIA_CONNECTED);
+            NdisAcquireSpinLock(&pContext->BindingLock);
+            pOpenContext->MiniportAdapterHandle = pContext->MiniportHandle;
+            pContext->BindingHandle = pOpenContext->BindingHandle;
+            pOpenContext->pContext = pContext;
+            pContext->pOpenContext = pOpenContext;
+            NdisReleaseSpinLock(&pContext->BindingLock);
+
+            pOpenContext->BindParameters = *BindParameters;
+            if (BindParameters->RcvScaleCapabilities)
+            {
+                pOpenContext->RcvScaleCapabilities =
+                              (*BindParameters->RcvScaleCapabilities);
+                pOpenContext->BindParameters.RcvScaleCapabilities =
+                              &pOpenContext->RcvScaleCapabilities;
+            }
+            pContext->LookAhead = pOpenContext->BindParameters.LookaheadSize;
+            pContext->LinkSpeed = pOpenContext->BindParameters.RcvLinkSpeed;
+
+            DEBUGP(DL_INFO, ("[%s]: PacketFiler %x\n",
+                   __FUNCTION__, pContext->PacketFilter));
+            //in case pContext->PacketFilter isn't set in VirtIO driver, set
+            //VF packetfilter as PARANDIS_PACKET_FILTERS by default.
+            PacketFiler = pContext->PacketFilter ?
+               pContext->PacketFilter : PARANDIS_PACKET_FILTERS;
+            Status = ndisprotDoRequest(
+                pOpenContext,
+                NDIS_DEFAULT_PORT_NUMBER,
+                NdisRequestSetInformation,
+                OID_GEN_CURRENT_PACKET_FILTER,
+                &PacketFiler,
+                sizeof(ULONG),
+                &BytesWritten);
+            if (Status != NDIS_STATUS_SUCCESS)
+            {
+                DEBUGP(DL_WARN,
+                      ("[%s]: set packet filter failed: %x\n",
+                       __FUNCTION__, Status));
+                //This failure does not affect the binding
+                Status = NDIS_STATUS_SUCCESS;
+            }
         }
         else
         {
-            NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_MEDIA_FLAGS, NPROTO_MEDIA_DISCONNECTED);
+            DEBUGP(DL_WARN,
+             ("[%s]: Fails to get VirtIO context with matched mac address\n",
+              __FUNCTION__));
+            Status = NDIS_STATUS_FAILURE;
+            break;
         }
-        //
-        // Get the back fill size
-        //
-        pOpenContext->DataBackFillSize = BindParameters->DataBackFillSize;
-        pOpenContext->ContextBackFillSize = BindParameters->ContextBackFillSize;
 
-        //
-        //  Mark this open. Also check if we received an Unbind while
-        //  we were setting this up.
-        //
         NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
-
         NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_BIND_FLAGS, NPROTO_BIND_ACTIVE);
-
-        ASSERT(!NPROT_TEST_FLAGS(pOpenContext->Flags, NPROTO_UNBIND_FLAGS, NPROTO_UNBIND_RECEIVED));
-
+        ASSERT(!NPROT_TEST_FLAGS(pOpenContext->Flags,
+                                 NPROTO_UNBIND_FLAGS, NPROTO_UNBIND_RECEIVED));
         NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
     }
     while (FALSE);
@@ -634,86 +505,52 @@ Return Value:
     if (Status != NDIS_STATUS_SUCCESS)
     {
         NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
-
-        //
-        //  Check if we had actually finished opening the adapter.
-        //
-        if (fOpenComplete)
-        {
-            NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_BIND_FLAGS, NPROTO_BIND_ACTIVE);
-        }
-        else if (NPROT_TEST_FLAGS(pOpenContext->Flags, NPROTO_BIND_FLAGS, NPROTO_BIND_OPENING))
-        {
-            NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_BIND_FLAGS, NPROTO_BIND_FAILED);
-        }
+        if (bOpenComplete)
+            NPROT_SET_FLAGS(pOpenContext->Flags,
+                            NPROTO_BIND_FLAGS, NPROTO_BIND_ACTIVE);
+        else if (NPROT_TEST_FLAGS(pOpenContext->Flags,
+                                  NPROTO_BIND_FLAGS, NPROTO_BIND_OPENING))
+            NPROT_SET_FLAGS(pOpenContext->Flags,
+                            NPROTO_BIND_FLAGS, NPROTO_BIND_FAILED);
 
         NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
 
         ndisprotShutdownBinding(pOpenContext);
     }
+    DEBUGP(DL_INFO, ("[%s]: OpenContext %p, Status %x\n",
+           __FUNCTION__, pOpenContext, Status));
 
-    DEBUGP(DL_INFO, ("CreateBinding: OpenContext %p, Status %x\n",
-            pOpenContext, Status));
-
-    return (Status);
+    return Status;
 }
-
-
 
 VOID
 ndisprotShutdownBinding(
     IN PNDISPROT_OPEN_CONTEXT        pOpenContext
     )
-/*++
-
-Routine Description:
-
-    Utility function to shut down the NDIS binding, if one exists, on
-    the specified open. This is written to be called from:
-
-        ndisprotCreateBinding - on failure
-        NdisprotUnbindAdapter
-
-    We handle the case where a binding is in the process of being set up.
-    This precaution is not needed if this routine is only called from
-    the context of our UnbindAdapter handler, but they are here in case
-    we initiate unbinding from elsewhere (e.g. on processing a user command).
-
-    NOTE: this blocks and finishes synchronously.
-
-Arguments:
-
-    pOpenContext - pointer to open context block
-
-Return Value:
-
-    None
-
---*/
 {
     NDIS_STATUS             Status;
     BOOLEAN                 DoCloseBinding = FALSE;
     NPROT_EVENT             ClosingEvent;
+    PPARANDIS_ADAPTER       pContext =
+                            (PPARANDIS_ADAPTER)pOpenContext->pContext;
 
     do
     {
         NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
-
-        if (NPROT_TEST_FLAGS(pOpenContext->Flags, NPROTO_BIND_FLAGS, NPROTO_BIND_OPENING))
+        if (NPROT_TEST_FLAGS(pOpenContext->Flags,
+                             NPROTO_BIND_FLAGS, NPROTO_BIND_FAILED))
         {
-            //
-            //  We are still in the process of setting up this binding.
-            //
             NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
             break;
         }
 
-        if (NPROT_TEST_FLAGS(pOpenContext->Flags, NPROTO_BIND_FLAGS, NPROTO_BIND_ACTIVE))
+        if (NPROT_TEST_FLAGS(pOpenContext->Flags,
+                             NPROTO_BIND_FLAGS, NPROTO_BIND_ACTIVE))
         {
             ASSERT(pOpenContext->ClosingEvent == NULL);
             pOpenContext->ClosingEvent = NULL;
-
-            NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_BIND_FLAGS, NPROTO_BIND_CLOSING);
+            NPROT_SET_FLAGS(pOpenContext->Flags,
+                            NPROTO_BIND_FLAGS, NPROTO_BIND_CLOSING);
 
             if (pOpenContext->PendedSendCount != 0)
             {
@@ -723,7 +560,6 @@ Return Value:
 
             DoCloseBinding = TRUE;
         }
-
         NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
 
         if (DoCloseBinding)
@@ -731,9 +567,7 @@ Return Value:
             ULONG    PacketFilter = 0;
             ULONG    BytesRead = 0;
 
-            //
-            // Set Packet filter to 0 before closing the binding
-            //
+            //Set Packet filter to 0 before closing the binding
             Status = ndisprotDoRequest(
                         pOpenContext,
                         NDIS_DEFAULT_PORT_NUMBER,
@@ -745,12 +579,11 @@ Return Value:
 
             if (Status != NDIS_STATUS_SUCCESS)
             {
-                DEBUGP(DL_WARN, ("ShutDownBinding: set packet filter failed: %x\n", Status));
+                DEBUGP(DL_WARN, ("[%s]: set packet filter failed: %x\n",
+                       __FUNCTION__, Status));
             }
 
-            //
-            // Set multicast list to null before closing the binding
-            //
+            //Set multicast list to null before closing the binding
             Status = ndisprotDoRequest(
                         pOpenContext,
                         NDIS_DEFAULT_PORT_NUMBER,
@@ -762,107 +595,55 @@ Return Value:
 
             if (Status != NDIS_STATUS_SUCCESS)
             {
-                DEBUGP(DL_WARN, ("ShutDownBinding: set multicast list failed: %x\n", Status));
+                DEBUGP(DL_WARN, ("[%s]: set multicast list failed: %x\n",
+                       __FUNCTION__, Status));
             }
 
-            //
-            //  Wait for any pending sends or requests on
-            //  the binding to complete.
-            //
-            ndisprotWaitForPendingIO(pOpenContext, TRUE);
+            //Wait for any pending sends, requests or receives on
+            //the binding to complete.
+            ndisprotWaitForPendingIO(pOpenContext);
 
-            //
-            //  Discard any queued receives.
-            //
-            ndisprotFlushReceiveQueue(pOpenContext);
-
-            //
-            //  Close the binding now.
-            //
             NPROT_INIT_EVENT(&pOpenContext->BindEvent);
-
-            DEBUGP(DL_INFO, ("ShutdownBinding: Closing OpenContext %p,"
-                    " BindingHandle %p\n",
-                    pOpenContext, pOpenContext->BindingHandle));
-
+            DEBUGP(DL_INFO, ("[%s]: Closing OpenContext %p,"
+                   " BindingHandle %p\n",
+                   __FUNCTION__, pOpenContext, pOpenContext->BindingHandle));
             Status = NdisCloseAdapterEx(pOpenContext->BindingHandle);
-
             if (Status == NDIS_STATUS_PENDING)
             {
                 NPROT_WAIT_EVENT(&pOpenContext->BindEvent, 0);
                 Status = pOpenContext->BindStatus;
             }
-
             NPROT_ASSERT(Status == NDIS_STATUS_SUCCESS);
 
-            pOpenContext->BindingHandle = NULL;
-
             NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
-
-            NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_BIND_FLAGS, NPROTO_BIND_IDLE);
-
+            NPROT_SET_FLAGS(pOpenContext->Flags,
+                            NPROTO_BIND_FLAGS, NPROTO_BIND_IDLE);
             NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_UNBIND_FLAGS, 0);
-
             NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
 
+            NdisAcquireSpinLock(&pContext->BindingLock);
+            pOpenContext->BindingHandle = NULL;
+            pContext->BindingHandle = NULL;
+            NdisReleaseSpinLock(&pContext->BindingLock);
+            ParaNdis_SendGratuitousArpPacket(pContext);
+            DEBUGP(DL_INFO, ("[%s]: Sending out Grutuitous Arp pContext %p",
+                   __FUNCTION__, pContext ));
         }
     } while (FALSE);
 
-
-    //
-    //  Remove it from the global list.
-    //
-    NPROT_ACQUIRE_LOCK(&Globals.GlobalLock, FALSE);
-
-    NPROT_REMOVE_ENTRY_LIST(&pOpenContext->Link);
-
-    NPROT_RELEASE_LOCK(&Globals.GlobalLock, FALSE);
-
-    //
-    //  Free any other resources allocated for this bind.
-    //
+    //Free any other resources allocated for this bind.
     ndisprotFreeBindResources(pOpenContext);
-
-    NPROT_DEREF_OPEN(pOpenContext);  // Shutdown binding
-
+    ndisprotDerefOpen(pOpenContext);  //Shutdown binding
 }
-
 
 VOID
 ndisprotFreeBindResources(
     IN PNDISPROT_OPEN_CONTEXT       pOpenContext
     )
-/*++
-
-Routine Description:
-
-    Free any resources set up for an NDIS binding.
-
-Arguments:
-
-    pOpenContext - pointer to open context block
-
-Return Value:
-
-    None
-
---*/
 {
-    if (pOpenContext->SendNetBufferListPool != NULL)
-    {
-        NdisFreeNetBufferListPool(pOpenContext->SendNetBufferListPool);
-        pOpenContext->SendNetBufferListPool = NULL;
-    }
-
-    if (pOpenContext->RecvNetBufferListPool != NULL)
-    {
-        NdisFreeNetBufferListPool(pOpenContext->RecvNetBufferListPool);
-        pOpenContext->RecvNetBufferListPool = NULL;
-    }
-
     if (pOpenContext->DeviceName.Buffer != NULL)
     {
-        NPROT_FREE_MEM(pOpenContext->DeviceName.Buffer);
+        NdisFreeMemory(pOpenContext->DeviceName.Buffer, 0, 0);
         pOpenContext->DeviceName.Buffer = NULL;
         pOpenContext->DeviceName.Length =
         pOpenContext->DeviceName.MaximumLength = 0;
@@ -870,113 +651,100 @@ Return Value:
 
     if (pOpenContext->DeviceDescr.Buffer != NULL)
     {
-        //
-        // this would have been allocated by NdisQueryAdpaterInstanceName.
-        //
+        //This would have been allocated by NdisQueryAdpaterInstanceName.
         NdisFreeMemory(pOpenContext->DeviceDescr.Buffer, 0, 0);
         pOpenContext->DeviceDescr.Buffer = NULL;
     }
 }
 
-
 VOID
 ndisprotWaitForPendingIO(
-    IN PNDISPROT_OPEN_CONTEXT            pOpenContext,
-    IN BOOLEAN                           DoCancelReads
+    IN PNDISPROT_OPEN_CONTEXT            pOpenContext
     )
-/*++
-
-Routine Description:
-
-    Utility function to wait for all outstanding I/O to complete
-    on an open context. It is assumed that the open context
-    won't go away while we are in this routine.
-
-Arguments:
-
-    pOpenContext - pointer to open context structure
-    DoCancelReads - do we wait for pending reads to go away (and cancel them)?
-
-Return Value:
-
-    None
-
---*/
 {
-    //
-    //  Wait for any pending sends or requests on the binding to complete.
-    //
+    //Wait for any pending sends or requests to be processed
+    NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
     if (pOpenContext->PendedSendCount == 0)
-    {
         ASSERT(pOpenContext->ClosingEvent == NULL);
-    }
     else
     {
         ASSERT(pOpenContext->ClosingEvent != NULL);
-        DEBUGP(DL_WARN, ("WaitForPendingIO: Open %p, %d pended sends\n",
-                pOpenContext, pOpenContext->PendedSendCount));
-
+        DEBUGP(DL_WARN, ("[%s]: Open %p, %d pended sends\n",
+            __FUNCTION__, pOpenContext, pOpenContext->PendedSendCount));
         NPROT_WAIT_EVENT(pOpenContext->ClosingEvent, 0);
-
     }
-
-    if (DoCancelReads)
-    {
-        //
-        //  Wait for any pended reads to complete/cancel.
-        //
-        while (pOpenContext->PendedReadCount != 0)
-        {
-            DEBUGP(DL_INFO, ("WaitForPendingIO: Open %p, %d pended reads\n",
-                pOpenContext, pOpenContext->PendedReadCount));
-
-            //
-            //  Cancel any pending reads.
-            //
-            ndisprotCancelPendingReads(pOpenContext);
-
-            NdisMSleep(100000);    // 100 ms.
-        }
-    }
-
+    NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
 }
-
 
 VOID
 ndisprotDoProtocolUnload(
     VOID
     )
-/*++
-
-Routine Description:
-
-    Utility routine to handle unload from the NDIS protocol side.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None
-
---*/
 {
     NDIS_HANDLE     ProtocolHandle;
 
-    DEBUGP(DL_INFO, ("ProtocolUnload: ProtocolHandle %lp\n",
-        Globals.NdisProtocolHandle));
+    DEBUGP(DL_INFO, ("[%s] ProtocolHandle %lp\n",
+        __FUNCTION__, Globals.NdisProtocolHandle));
 
     if (Globals.NdisProtocolHandle != NULL)
     {
         ProtocolHandle = Globals.NdisProtocolHandle;
         Globals.NdisProtocolHandle = NULL;
-
         NdisDeregisterProtocolDriver(ProtocolHandle);
-
     }
 }
 
+VOID
+NdisprotUnload(
+    IN PDRIVER_OBJECT DriverObject
+    )
+{
+    UNICODE_STRING     win32DeviceName;
+    PAGED_CODE();
+    UNREFERENCED_PARAMETER(DriverObject);
+
+    DEBUGP(DL_LOUD, ("Unload Enter\n"));
+
+    //First delete the Control deviceobject and the corresponding
+    //symbolicLink
+    RtlInitUnicodeString(&win32DeviceName, DOS_DEVICE_NAME);
+    IoDeleteSymbolicLink(&win32DeviceName);
+    if (Globals.ControlDeviceObject)
+    {
+        IoDeleteDevice(Globals.ControlDeviceObject);
+        Globals.ControlDeviceObject = NULL;
+    }
+    ndisprotDoProtocolUnload();
+    DEBUGP(DL_LOUD, ("Unload Exit\n"));
+}
+
+VOID
+ndisprotRefOpen(
+    IN PNDISPROT_OPEN_CONTEXT        pOpenContext
+    )
+{
+    NdisInterlockedIncrement((PLONG)&pOpenContext->RefCount);
+}
+
+VOID
+ndisprotDerefOpen(
+    IN PNDISPROT_OPEN_CONTEXT        pOpenContext
+    )
+{
+    if (NdisInterlockedDecrement((PLONG)&pOpenContext->RefCount) == 0)
+    {
+        DEBUGP(DL_INFO, ("DerefOpen: Open %p, Flags %x, ref count is zero!\n",
+            pOpenContext, pOpenContext->Flags));
+
+        NPROT_ASSERT(pOpenContext->BindingHandle == NULL);
+        NPROT_ASSERT(pOpenContext->RefCount == 0);
+
+        pOpenContext->oc_sig++;
+        NPROT_FREE_LOCK(&Globals.GlobalLock);
+        NPROT_FREE_LOCK(&pOpenContext->Lock);
+        NdisFreeMemory(pOpenContext, 0, 0);
+    }
+}
 
 NDIS_STATUS
 ndisprotDoRequest(
@@ -988,41 +756,13 @@ ndisprotDoRequest(
     IN ULONG                        InformationBufferLength,
     OUT PULONG                      pBytesProcessed
     )
-/*++
-
-Routine Description:
-
-    Utility routine that forms and sends an NDIS_REQUEST to the
-    miniport, waits for it to complete, and returns status
-    to the caller.
-
-    NOTE: this assumes that the calling routine ensures validity
-    of the binding handle until this returns.
-
-Arguments:
-
-    pOpenContext - pointer to our open context
-    PortNumber - the port to issue the request
-    RequestType - NdisRequest[Set|Query|Method]Information
-    Oid - the object being set/queried
-    InformationBuffer - data for the request
-    InformationBufferLength - length of the above
-    pBytesProcessed - place to return bytes read/written
-
-Return Value:
-
-    Status of the set/query/method request
-
---*/
 {
-    NDISPROT_REQUEST            ReqContext;
+    FWD_NDIS_REQUEST            ReqContext;
     PNDIS_OID_REQUEST           pNdisRequest = &ReqContext.Request;
     NDIS_STATUS                 Status;
 
-
     NdisZeroMemory(&ReqContext, sizeof(ReqContext));
-
-    NPROT_INIT_EVENT(&ReqContext.ReqEvent);
+    NPROT_INIT_EVENT(&ReqContext.Event);
     pNdisRequest->Header.Type = NDIS_OBJECT_TYPE_OID_REQUEST;
     pNdisRequest->Header.Revision = NDIS_OID_REQUEST_REVISION_1;
     pNdisRequest->Header.Size = sizeof(NDIS_OID_REQUEST);
@@ -1038,7 +778,6 @@ Return Value:
             pNdisRequest->DATA.QUERY_INFORMATION.InformationBufferLength =
                                     InformationBufferLength;
             break;
-
         case NdisRequestSetInformation:
             pNdisRequest->DATA.SET_INFORMATION.Oid = Oid;
             pNdisRequest->DATA.SET_INFORMATION.InformationBuffer =
@@ -1046,21 +785,17 @@ Return Value:
             pNdisRequest->DATA.SET_INFORMATION.InformationBufferLength =
                                     InformationBufferLength;
             break;
-
         default:
             NPROT_ASSERT(FALSE);
             break;
     }
 
     pNdisRequest->RequestId = NPROT_GET_NEXT_CANCEL_ID();
-    Status = NdisOidRequest(pOpenContext->BindingHandle,
-                            pNdisRequest);
-
+    Status = NdisOidRequest(pOpenContext->BindingHandle, pNdisRequest);
 
     if (Status == NDIS_STATUS_PENDING)
     {
-
-        NPROT_WAIT_EVENT(&ReqContext.ReqEvent, 0);
+        NPROT_WAIT_EVENT(&ReqContext.Event, 0);
         Status = ReqContext.Status;
     }
 
@@ -1070,17 +805,19 @@ Return Value:
                             pNdisRequest->DATA.QUERY_INFORMATION.BytesWritten:
                             pNdisRequest->DATA.SET_INFORMATION.BytesRead;
 
-        //
-        // The driver below should set the correct value to BytesWritten
-        // or BytesRead. But now, we just truncate the value to InformationBufferLength
-        //
+        //The driver below should set the correct value to BytesWritten
+        //or BytesRead. But now, we just truncate the value to
+        //InformationBufferLength
         if (*pBytesProcessed > InformationBufferLength)
         {
             *pBytesProcessed = InformationBufferLength;
         }
+        NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
+        pOpenContext->PendedSendCount++;
+        NdisReleaseSpinLock(&pOpenContext->Lock);
     }
 
-    return (Status);
+    return Status;
 }
 
 VOID
@@ -1089,226 +826,125 @@ NdisprotRequestComplete(
     IN PNDIS_OID_REQUEST            pNdisRequest,
     IN NDIS_STATUS                  Status
     )
-/*++
-
-Routine Description:
-
-    NDIS entry point indicating completion of a pended NDIS_REQUEST.
-
-Arguments:
-
-    ProtocolBindingContext - pointer to open context
-    pNdisRequest - pointer to NDIS request
-    Status - status of reset completion
-
-Return Value:
-
-    None
-
---*/
 {
     PNDISPROT_OPEN_CONTEXT       pOpenContext;
-    PNDISPROT_REQUEST            pReqContext;
+    PFWD_NDIS_REQUEST            pFwdNdisRequest;
 
     pOpenContext = (PNDISPROT_OPEN_CONTEXT)ProtocolBindingContext;
     NPROT_STRUCT_ASSERT(pOpenContext, oc);
 
-    //
-    //  Get at the request context.
-    //
-    pReqContext = CONTAINING_RECORD(pNdisRequest, NDISPROT_REQUEST, Request);
+    //Get the Super-structure for NDIS_REQUEST before getting the callback
+    //functions so make sure NdisRequest is a filled into a FWD_NDIS_REQUEST
+    //before using this function
+    pFwdNdisRequest = CONTAINING_RECORD(pNdisRequest,
+                                        FWD_NDIS_REQUEST, Request);
 
-    //
-    //  Save away the completion status.
-    //
-    pReqContext->Status = Status;
+    //This falls in ndisprotDoRequest case, pCallback isn't set
+    if (pFwdNdisRequest->pCallback == NULL)
+    {
+        DEBUGP(DL_INFO, ("[%s]: orig %p callback %p, req %p, ref %d\n",
+            __FUNCTION__, pFwdNdisRequest->OrigRequest,
+            pFwdNdisRequest->pCallback, pFwdNdisRequest->Request,
+            pFwdNdisRequest->Refcount));
+    }
+    else
+    {
+        (*pFwdNdisRequest->pCallback)(pOpenContext,
+                                      pFwdNdisRequest,
+                                      Status);
+    }
 
-    //
-    //  Wake up the thread blocked for this request to complete.
-    //
-    NPROT_SIGNAL_EVENT(&pReqContext->ReqEvent);
+    NdisAcquireSpinLock(&pOpenContext->Lock);
+    pOpenContext->PendedSendCount--;
+    if ((pOpenContext->PendedSendCount == 0) &&
+       (pOpenContext->ClosingEvent != NULL))
+    {
+        NPROT_SIGNAL_EVENT(pOpenContext->ClosingEvent);
+        pOpenContext->ClosingEvent = NULL;
+    }
+    NdisReleaseSpinLock(&pOpenContext->Lock);
+
+    //Save away the completion status.
+    pFwdNdisRequest->Status = Status;
+
+    //Wake up the thread blocked for this request to complete
+    //in ndisprotDoRequest
+    if (pFwdNdisRequest->pCallback == NULL)
+        NPROT_SIGNAL_EVENT(&pFwdNdisRequest->Event);
 }
-
 
 VOID
 NdisprotStatus(
     IN NDIS_HANDLE                  ProtocolBindingContext,
     IN PNDIS_STATUS_INDICATION      StatusIndication
     )
-/*++
-
-Routine Description:
-
-    Protocol entry point called by NDIS to indicate a change
-    in status at the miniport.
-
-    We make note of reset and media connect status indications.
-
-Arguments:
-
-    ProtocolBindingContext - pointer to open context
-    StatusIndication - pointer to NDIS_STATUS_INDICATION
-
-Return Value:
-
-    None
-
---*/
 {
     PNDISPROT_OPEN_CONTEXT       pOpenContext;
     NDIS_STATUS                  GeneralStatus;
     PNDIS_LINK_STATE             LinkState;
 
-
     pOpenContext = (PNDISPROT_OPEN_CONTEXT)ProtocolBindingContext;
     NPROT_STRUCT_ASSERT(pOpenContext, oc);
 
-
     if ((StatusIndication->Header.Type != NDIS_OBJECT_TYPE_STATUS_INDICATION)
-            || (StatusIndication->Header.Size != sizeof(NDIS_STATUS_INDICATION)))
+         || (StatusIndication->Header.Size != sizeof(NDIS_STATUS_INDICATION)))
     {
-        DEBUGP(DL_INFO, ("Status: Received an invalid status indication: Open %p, StatusIndication %p\n",
-                    pOpenContext, StatusIndication));
+        DEBUGP(DL_INFO,
+        ("[%s]: Status: Received an invalid status indication: Open %p, StatusIndication %p\n",
+        __FUNCTION__, pOpenContext, StatusIndication));
         return;
     }
 
     GeneralStatus = StatusIndication->StatusCode;
 
-    DEBUGP(DL_INFO, ("Status: Open %p, Status %x\n",
-            pOpenContext, GeneralStatus));
-
-
     NPROT_ACQUIRE_LOCK(&pOpenContext->Lock, FALSE);
+    if (pOpenContext->PowerState != NetDeviceStateD0)
+        DEBUGP(DL_WARN, ("[%s]: The device is in a low power state.\n",
+               __FUNCTION__))
 
-    do
+    switch(GeneralStatus)
     {
-        if (pOpenContext->PowerState != NetDeviceStateD0)
-        {
-            //
-            //
-            //  The device is in a low power state.
+        case NDIS_STATUS_RESET_START:
+            NPROT_ASSERT(!NPROT_TEST_FLAGS(pOpenContext->Flags,
+                                           NPROTO_RESET_FLAGS,
+                                           NPROTO_RESET_IN_PROGRESS));
 
-            //
-            //  We continue and make note of status indications
-            //
+            NPROT_SET_FLAGS(pOpenContext->Flags,
+                            NPROTO_RESET_FLAGS,
+                            NPROTO_RESET_IN_PROGRESS);
 
-            //
-            //  NOTE that any actions we take based on these
-            //  status indications should take into account
-            //  the current device power state.
-            //
-        }
+            break;
+        case NDIS_STATUS_RESET_END:
+            NPROT_ASSERT(NPROT_TEST_FLAGS(pOpenContext->Flags,
+                                          NPROTO_RESET_FLAGS,
+                                          NPROTO_RESET_IN_PROGRESS));
 
-        switch(GeneralStatus)
-        {
-            case NDIS_STATUS_RESET_START:
-
-                NPROT_ASSERT(!NPROT_TEST_FLAGS(pOpenContext->Flags,
-                                             NPROTO_RESET_FLAGS,
-                                             NPROTO_RESET_IN_PROGRESS));
-
+            NPROT_SET_FLAGS(pOpenContext->Flags,
+                            NPROTO_RESET_FLAGS,
+                            NPROTO_NOT_RESETTING);
+            break;
+        case NDIS_STATUS_LINK_STATE:
+            ASSERT(StatusIndication->StatusBufferSize
+                                               >= sizeof(NDIS_LINK_STATE));
+            LinkState = (PNDIS_LINK_STATE)StatusIndication->StatusBuffer;
+            if (LinkState->MediaConnectState == MediaConnectStateConnected)
+            {
                 NPROT_SET_FLAGS(pOpenContext->Flags,
-                               NPROTO_RESET_FLAGS,
-                               NPROTO_RESET_IN_PROGRESS);
-
-                break;
-
-            case NDIS_STATUS_RESET_END:
-
-                NPROT_ASSERT(NPROT_TEST_FLAGS(pOpenContext->Flags,
-                                            NPROTO_RESET_FLAGS,
-                                            NPROTO_RESET_IN_PROGRESS));
-
+                                NPROTO_MEDIA_FLAGS,
+                                NPROTO_MEDIA_CONNECTED);
+            }
+            else
+            {
                 NPROT_SET_FLAGS(pOpenContext->Flags,
-                               NPROTO_RESET_FLAGS,
-                               NPROTO_NOT_RESETTING);
+                                NPROTO_MEDIA_FLAGS,
+                                NPROTO_MEDIA_DISCONNECTED);
+            }
 
-                break;
-
-            case NDIS_STATUS_LINK_STATE:
-
-                ASSERT(StatusIndication->StatusBufferSize >= sizeof(NDIS_LINK_STATE));
-
-                LinkState = (PNDIS_LINK_STATE)StatusIndication->StatusBuffer;
-
-                if (LinkState->MediaConnectState == MediaConnectStateConnected)
-                {
-                    NPROT_SET_FLAGS(pOpenContext->Flags,
-                                   NPROTO_MEDIA_FLAGS,
-                                   NPROTO_MEDIA_CONNECTED);
-                }
-                else
-                {
-                    NPROT_SET_FLAGS(pOpenContext->Flags,
-                                   NPROTO_MEDIA_FLAGS,
-                                   NPROTO_MEDIA_DISCONNECTED);
-                }
-
-                break;
-
-            default:
-                break;
-        }
+            break;
+        default:
+            break;
     }
-    while (FALSE);
 
     NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
 }
-
-PNDISPROT_OPEN_CONTEXT
-ndisprotLookupDevice(
-    _In_reads_bytes_(BindingInfoLength) IN PUCHAR    pBindingInfo,
-    IN ULONG                                    BindingInfoLength
-    )
-/*++
-
-Routine Description:
-
-    Search our global list for an open context structure that
-    has a binding to the specified device, and return a pointer
-    to it.
-
-    NOTE: we reference the open that we return.
-
-Arguments:
-
-    pBindingInfo - pointer to unicode device name string
-    BindingInfoLength - length in bytes of the above.
-
-Return Value:
-
-    Pointer to the matching open context if found, else NULL
-
---*/
-{
-    PNDISPROT_OPEN_CONTEXT      pOpenContext;
-    PLIST_ENTRY                 pEnt;
-
-    pOpenContext = NULL;
-
-    NPROT_ACQUIRE_LOCK(&Globals.GlobalLock, FALSE);
-
-    for (pEnt = Globals.OpenList.Flink;
-         pEnt != &Globals.OpenList;
-         pEnt = pEnt->Flink)
-    {
-        pOpenContext = CONTAINING_RECORD(pEnt, NDISPROT_OPEN_CONTEXT, Link);
-        NPROT_STRUCT_ASSERT(pOpenContext, oc);
-
-        //
-        //  Check if this has the name we are looking for.
-        //
-        if ((pOpenContext->DeviceName.Length == BindingInfoLength) &&
-            NPROT_MEM_CMP(pOpenContext->DeviceName.Buffer, pBindingInfo, BindingInfoLength))
-        {
-            NPROT_REF_OPEN(pOpenContext);   // ref added by LookupDevice
-            break;
-        }
-
-        pOpenContext = NULL;
-    }
-
-    NPROT_RELEASE_LOCK(&Globals.GlobalLock, FALSE);
-
-    return (pOpenContext);
-}
+#endif

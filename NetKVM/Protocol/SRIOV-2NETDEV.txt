@@ -1,0 +1,248 @@
+SRIOV 2-netdev model - Windows
+Created by Annie Li(annie.li@oracle.com)
+
+Introduction
+
+Different options of implementating for SRIOV migration on Windows are
+introduced in SRIOV-Intro.txt, including M-to-N NDIS MUX intermediate driver,
+Hyper-V 2-netdev model and nic teaming. 2-netdev model is the appropriate
+solution compared with the other two, so this page mainly explains how to
+implement 2-netdev model in VirtIO netkvm driver.
+
+1. Hyper-V implementation
+
+In Hyper-V, a specific protocol netvsc_vfpp driver serves as pipe/bridge between
+Hyper-V Ethernet miniport driver(NetVsc) and VF miniport driver. Communication
+between Hyper-V and VF miniport driver is done through backchannel between
+Hyper-V miniport driver(netvsc) and protocol driver(netvsc_vfpp).  Hyper-V
+deploys 2-netdev model in one driver binary - netvscxx.sys, where xx is the NDIS
+version. Netvscxx.sys not only serves Hyper-V Ethernet device miniport driver,
+but also serves protocol driver. This is to say both netvsc driver and
+netvsc_vfpp protocol driver sit in netvscxx.sys binary, but Hyper-V nic miniport
+driver and protocol driver has separate inf installation file - wnetvsc.inf and
+wnetvsc_vfpp.inf. See following contents of these two files for details,
+
+In wnetvsc_vfpp.inf, netvsc63.sys(For NDIS version 6.3) is service binary of
+netvsc protocol driver. Generally, driver binary locates in
+%SystemRoot%\system32\drivers, and inf file locates in %SystemRoot%\INF folder.
+
+[netvscvfpp.AddService]
+ServiceType = 1 ;SERVICE_KERNEL_DRIVER
+StartType = 3 ;SERVICE_DEMAND_START
+ErrorControl = 1 ;SERVICE_ERROR_NORMAL
+ServiceBinary = %12%\netvsc63.sys
+
+In wnetvsc.inf, netvsc63.sys(For NDIS version 6.3) is service binary of netvsc
+miniport driver.
+
+[netvsc63_Service_Inst]
+ServiceType = 1 ; SERVICE_KERNEL_DRIVER
+StartType = 3 ; SERVICE_DEMAND_START
+ErrorControl = 1 ; SERVICE_ERROR_NORMAL
+ServiceBinary = %12%\netvsc63.sys
+
+Hyper-V netvsc_vfpp protocol driver only binds with VF miniport driver, to
+implement this, netvsc_vfpp expose LowerRange as "ndisvf", see following,
+
+[netvscvfpp.ndi.AddReg]
+HKR, Ndi, HelpText, 0, "%netvscvfpp_Help%"
+HKR, Ndi, Service, 0, "netvscvfpp"
+HKR, Ndi\Interfaces, UpperRange, 0, "noupper"
+HKR, Ndi\Interfaces, LowerRange, 0, "ndisvf"
+
+
+The VF driver exposes UpperRange as "ndisvf", with this setting, VF miniport
+driver could be only bound with netvsc_vfpp protocol driver, no other protocol
+drivers.
+Here, take Intel X540 VF as an example, the VF device id advertised by PF driver
+in Hyper-v is 0x1530, see following for details in netvxx64.inf.
+
+[Intel.NTamd64.6.1]
+%E1530VF.DeviceDesc%               = E1530,       PCI\VEN_8086&DEV_1530
+
+[E1530]
+AddReg = Interfaces_iov.reg, Default.reg
+
+[Interfaces_iov.reg]
+HKR, Ndi\Interfaces, UpperRange, 0, "ndisvf"
+
+; Device Description Strings
+E1530VF.DeviceDesc = "Intel(R) X540 Virtual Function"
+
+This mechanism significantly simplifies work in 2-netdev model in Hyper-V, VF
+miniport driver and netvsc_vfpp driver are 1:1 binding which eliminates
+involvement with other protocol drivers, like TCP/IP, etc. This ensures all
+network communication on VF can only be handled by netvsc_vfpp driver.
+Netvsc_vfpp driver then communicates with Hyper-V nic miniport driver which
+talks to all protocol drivers sit on top of it.
+
+2. VirtIO implementation
+
+1). VF device id in KVM
+
+As mentioned in Hyper-V implementation, 2-netdev model is simple and clean.
+However, 2-netdev implementation in VirtIO is more complicated than that in
+Hyper-V. A Notify Object is necessary to get involved handle binding/unbinding
+between virtio protocol driver and VF miniport driver and all other miniport
+driver which has UpperRange "ndis5". The reason of doing this is due to
+different communication mechanism between PF and VF, and PF advertises VF with
+different device-id which relates to different UpperRange binding.
+Take Intel for example, Intel switched to use the mailbox communication between
+the VF-PF only starting from their X722 parts, but they used Hyper-V mechnism
+for 1g/10g/and some of 40g network cards.
+Intel VF miniport driver shares one inf file - netvxx64.inf, device-id of VF
+in KVM environment is 0x1515, not the same one(0x1530) in Hyper-V.
+
+Takes Intel X540 as an example, following shows VF device id in KVM is 0x1515.
+
+netvxx64.inf
+
+[Intel.NTamd64.6.1]
+%E1515VF.DeviceDesc% = E1515, PCI\VEN_8086&DEV_1515
+
+[E1515]
+AddReg = Interfaces.reg, Default.reg, VLAN.reg
+
+[Interfaces.reg]
+HKR, Ndi\Interfaces, UpperRange, 0, "ndis5"
+
+Since miniport driver for VF with device-id 0x1515 has "ndis5" as its
+UpperRange, it could bind itself with all protocol drivers which has "ndis5" as
+LowerRange. However, this conflicts with the idea of binding VF miniport driver
+with VirtIO protocol driver exclusively. To solve this, a Notify Object is
+necessary to bind VF miniport driver and protocol drivers in 1:1 mode.
+
+2). Notify Object
+
+Notify Object is COM object which could process notifications of network
+configuration subsystem, it sits in DLL binary. Notify Objects provides
+different methods for different purpose, here, NotifyBindingPath method is
+mentioned because it is the key part to handle binding/unbindings.
+
+Microsoft Notify Object sample code could be found in following,
+https://github.com/microsoft/Windows-driver-samples/tree/master/network/ndis/mux/notifyob
+It is based on MUX(N:1) model. Although MUX model is eliminated for SR-IOV
+live migration, its Notify Object is reference for VirtIO 2-netdev model.
+
+In method NotifyBindingPath, UpperID(protocol) and LowerID(miniport) of every
+bindings could be gotten. From both IDs, we could decide whether to bind
+between specific protocol driver and miniport driver. The current solution is
+comparing ID strings of protocol and miniport driver, and all supported IDs
+should be covered in future. Following shows how the protocol binding looks
+like after unbinding all other protocols from VF miniport driver,
+
+Get-NetAdapterBinding -IncludeHidden -AllBindings
+
+Name        DisplayName                                   ComponenID    Enabled
+
+Ethernet 6  Sample NDIS Protocol Driver                     ms_ndisprot   True
+Ethernet 6  Microsoft RDMA - NDK                            ms_rdma_ndk   False
+Ethernet 6  Point to Point Protocol Over Ethernet           ms_pppoe      False
+Ethernet 6  NDIS Usermode I/O Protocol                      ms_ndisuio    False
+Ethernet 6  Link-Layer Topology Discovery Responder         ms_rspndr     False
+Ethernet 6  Link-Layer Topology Discovery Mapper I/O Driver ms_lltdio     False
+Ethernet 6  Microsoft Network Adapter Multiplexor Protocol  ms_implat     False
+Ethernet 6  Client for Microsoft Networks                   ms_msclient   False
+Ethernet 6  WFP 802.3 MAC Layer LightWeight Filter          ms_wfplwf_upper False
+Ethernet 6  WFP Native MAC Layer LightWeight Filter         ms_wfplwf_lower True
+Ethernet 6  Microsoft NDIS Capture                          ms_ndiscap     False
+Ethernet 6  QoS Packet Scheduler                            ms_pacer       False
+Ethernet 6  File and Printer Sharing for Microsoft Networks ms_server      False
+Ethernet 6  Internet Protocol Version 6 (TCP/IPv6)          ms_tcpip6      False
+Ethernet 6  Internet Protocol Version 4 (TCP/IPv4)          ms_tcpip       False
+Ethernet 6  WINS Client(TCP/IP) Protocol                    ms_netbt       False
+Ethernet 6  NetBIOS Interface                               ms_netbios     False
+
+Notify Object is installed through protocol inf file, for exmaple,
+the inf file is ndisprot630.inf in sample code.
+
+[CpyFiles_Dll]
+mux.dll,,,2
+
+Both mux.dll and ndisprot630.inf are temporary name, their name could be changed
+to specific names related to SRIOV later.
+
+3). VirtO protocol driver
+
+VirtIO protocol driver works as a bridge between VirtIO and VF miniport driver,
+the sample code is gotten from following,
+https://github.com/microsoft/Windows-driver-samples/tree/master/network/ndis/ndisprot/6x/sys
+Since protocol driver sits in same binary of VirtIO miniport drivers, and
+Windows system does not allow two DriverEntry() in one binary, it is necesarry
+to register protocol driver in VirtIO's DriverEntry code. After protocol driver
+gets registered and new VF device binds to it, the protocol driver need to check
+MAC address of VF device and compare it with MAC address of VirtIO device, and
+save bindinghandle of VF miniport driver in corresponding VirtIO nic's context.
+This could be done in function ndisprotCreateBinding. In this way, VirtIO could
+communicate with VF driver through this bindinghandle.
+
+After protocol driver gets installed, all network miniport driver which have
+"ndis5" UpperRange could bind to it. Notify Object needs to unbind all network
+miniport drivers except for VF miniport drivers from this protocol driver.
+
+VirtIO protocol driver is installed by ndisprot630.inf file, name is changed to
+VirtIO related string - vioprot.inf. Since protocol driver does not have
+separate binary and it sits in netkvm driver binary, protocol driver will be
+installed through vioprot.inf, but this inf does not copy netkvm driver binary
+into Windows system path. This driver binary is copied by netkvm driver inf
+file, i.e. when netkvm miniport driver gets installed. Nothing needs to be
+modified in VirtIO miniport driver installation file.
+
+ndisprot630.inf(VirtIO protocol installation file)
+
+[NDISPROT_Service_Inst]
+DisplayName = %NDISPROT_Desc%
+ServiceType = 1 ;SERVICE_KERNEL_DRIVER
+StartType = 3 ;SERVICE_DEMAND_START
+ErrorControl = 1 ;SERVICE_ERROR_NORMAL
+ServiceBinary = %12%\netkvm.sys
+
+netkvm.inf(VirtIO network driver installation file)
+
+[kvmnet6.CopyFiles]
+netkvm.sys,,,2
+
+[kvmnet6.Service]
+DisplayName = %kvmnet6.Service.DispName%
+ServiceType = 1 ;%SERVICE_KERNEL_DRIVER%
+StartType = 3 ;%SERVICE_DEMAND_START%
+ErrorControl = 1 ;%SERVICE_ERROR_NORMAL%
+ServiceBinary = %12%\netkvm.sys
+
+4). VirtIO - Communication between VirtIO and VF
+
+Communications between VirtIO and VF mainly exists in TX path, RX path, and
+OID requests, the bindinghandle of VF miniport driver is the key do the
+communication.
+
+5). TX path(SendNetBufferListsHandler/CancelSendHandler)
+
+When VirtIO driver forwards TX packets to VF miniport driver, the NetBufferList
+contains SourceHandle provided by NDIS originally, this handle needs to be
+saved for protocol driver. After packets are sent out by VF miniport, protocol
+driver needs to complete sending NetBufferList through original SourceHandle.
+Otherwise, things would go significantly wrong.
+When sending packets, VirtIO miniport driver calls NdisSendNetBufferLists to
+send data through VF miniport binding handle, as well as
+CancelSendNetBufferListsToVF.
+
+6). In RX path(ReturnNetBufferListsHandler ),
+
+ReturnNetBufferListsHandler returns packets through VF miniport's binding
+handle. NdisMIndicateReceiveNetBufferLists indicates NetBufferLists to upper
+protocols through appropriate NDIS Handle. When underlying VF miniport driver
+calls NdisMIndicateReceiveNetBufferLists to indicate NetBufferLists to VirtIO
+protocol driver, this protocol driver's ReceiveNetBufferListsHandler gets
+triggered, it calls NdisMIndicateReceiveNetBufferLists again to indicate
+NetBufferLists to all protocol drivers which sit on top of VirtIO minport
+driver through VirtIO NDIS handler.
+
+7). Request OIDs(OidRequestHandler)
+
+Currently, VirtIO forwards all OIDs to VF miniport driver in MPForwardOidRequest
+function when VF binding handle is valid, VF miniport driver will process these
+OIDs just like what they did before, VF miniport driver would not behave
+differently whether these OIDs is forwarded by VirtIO driver or from NDIS in
+normal case(non 2-netdev model). Protocol drivers provides callback functions to
+complete these OIDs. MPQueryInformation and MPSetInformation calls
+MPForwardOidRequest to forward OID request from VirtIO to VF.
