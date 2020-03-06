@@ -1,22 +1,7 @@
-/*++
-
-Copyright (c) 2000  Microsoft Corporation
-
-Module Name:
-
-    ntdisp.c
-
-Abstract:
-
-    NT Entry points and dispatch routines for NDISPROT.
-
-Environment:
-
-    Kernel mode only.
-
-Revision History:
-
---*/
+/*
+ * Copyright (c) 2000  Microsoft Corporation
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ */
 
 #include "precomp.h"
 

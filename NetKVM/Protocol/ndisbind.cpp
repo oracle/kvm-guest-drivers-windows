@@ -1,24 +1,9 @@
-/*++
-
-Copyright (c) 2000  Microsoft Corporation
-
-Module Name:
-
-    ndisbind.c
-
-Abstract:
-
-    NDIS protocol entry points and utility routines to handle binding
-    and unbinding from adapters.
-
-Environment:
-
-    Kernel mode only.
-
-Revision History:
-
---*/
-
+/*
+ * Copyright (c) 2000  Microsoft Corporation
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ *
+ * Author:    Annie Li    Reworked for 2-netdev SRIOV live migration
+ */
 
 #include "precomp.h"
 

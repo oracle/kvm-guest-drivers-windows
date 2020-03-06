@@ -1,20 +1,7 @@
-/*++
-
-Copyright (c) 2000  Microsoft Corporation
-
-Module Name:
-
-    debug.h
-
-Abstract:
-
-    Debug macros for NDISPROT
-
-Revision History:
-
-Notes:
-
---*/
+/*
+ * Copyright (c) 2000  Microsoft Corporation
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ */
 
 #ifndef _NPROTDEBUG__H
 #define _NPROTDEBUG__H

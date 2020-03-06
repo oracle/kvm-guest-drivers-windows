@@ -1,22 +1,7 @@
-/*++
-
-Copyright (c) 2000  Microsoft Corporation
-
-Module Name:
-
-    ndisprot.h
-
-Abstract:
-
-    Data structures, defines and function prototypes for NDISPROT.
-
-Environment:
-
-    Kernel mode only.
-
-Revision History:
-
---*/
+/*
+ * Copyright (c) 2000  Microsoft Corporation
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ */
 
 #ifndef __NDISPROT__H
 #define __NDISPROT__H

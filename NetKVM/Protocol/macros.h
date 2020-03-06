@@ -1,23 +1,7 @@
-/*++
-
-Copyright (c) 2000  Microsoft Corporation
-
-Module Name:
-
-    macros.h
-
-Abstract:
-
-    Some macros for NDISPROT.
-
-Environment:
-
-    Kernel mode only.
-
-Revision History:
-
---*/
-
+/*
+ * Copyright (c) 2000  Microsoft Corporation
+ * Copyright (c) 2020 Oracle and/or its affiliates.
+ */
 
 //Spinlock macros
 #define NPROT_INIT_LOCK(_pLock)           NdisAllocateSpinLock(_pLock)
