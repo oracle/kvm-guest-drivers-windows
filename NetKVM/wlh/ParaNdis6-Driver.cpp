@@ -399,6 +399,23 @@ static NDIS_STATUS ParaNdis6_Initialize(
     return status;
 }
 
+VOID RemoveAdapterFromList(PARANDIS_ADAPTER *pContext)
+{
+    PLIST_ENTRY                 pEnt;
+
+    NPROT_ACQUIRE_LOCK(&Globals.GlobalLock, FALSE);
+    for (pEnt = Globals.UpAdaptList.Flink;
+         pEnt != &Globals.UpAdaptList;
+         pEnt = pEnt->Flink)
+    {
+        if (pContext == CONTAINING_RECORD(pEnt, PARANDIS_ADAPTER, Link))
+        {
+            RemoveEntryList(pEnt);
+            break;
+        }
+    }
+    NPROT_RELEASE_LOCK(&Globals.GlobalLock, FALSE);
+}
 
 /**********************************************************
 called at IRQL = PASSIVE_LEVEL
@@ -414,6 +431,7 @@ static VOID ParaNdis6_Halt(NDIS_HANDLE miniportAdapterContext, NDIS_HALT_ACTION 
     ParaNdis_DebugRegisterMiniport(pContext, FALSE);
     NdisFreeMemory(pContext->UnalignedAdapterContext, 0, 0);
 #if SRIOV
+    RemoveAdapterFromList(pContext);
     NdisFreeSpinLock(&pContext->BindingLock);
 #endif
     DEBUG_EXIT_STATUS(2, 0);

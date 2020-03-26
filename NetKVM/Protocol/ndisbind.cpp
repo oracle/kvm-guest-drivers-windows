@@ -621,13 +621,16 @@ ndisprotShutdownBinding(
             NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_UNBIND_FLAGS, 0);
             NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
 
-            NdisAcquireSpinLock(&pContext->BindingLock);
-            pOpenContext->BindingHandle = NULL;
-            pContext->BindingHandle = NULL;
-            NdisReleaseSpinLock(&pContext->BindingLock);
-            ParaNdis_SendGratuitousArpPacket(pContext);
-            DEBUGP(DL_INFO, ("[%s]: Sending out Grutuitous Arp pContext %p",
-                   __FUNCTION__, pContext ));
+            if (pContext)
+            {
+                NdisAcquireSpinLock(&pContext->BindingLock);
+                pOpenContext->BindingHandle = NULL;
+                pContext->BindingHandle = NULL;
+                NdisReleaseSpinLock(&pContext->BindingLock);
+                ParaNdis_SendGratuitousArpPacket(pContext);
+                DEBUGP(DL_INFO, ("[%s]: Sending out Grutuitous Arp pContext %p",
+                       __FUNCTION__, pContext ));
+            }
         }
     } while (FALSE);
 
