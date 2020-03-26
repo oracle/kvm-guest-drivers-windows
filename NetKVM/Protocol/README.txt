@@ -7,7 +7,7 @@ To install and test 2-netdev model manually
 2. Copy following installation binaries into folder "install"
    take win8 release for an example
    x64/win8release/netkvm.inf, netkvm.sys
-   notifyobject/x64/win8release/vioprot630.inf, netkvmno.dll
+   NotifyObject/x64/win8release/vioprot.inf, netkvmno.dll
 3. Go to Device manager-> Other devices-> right click Ethernet Controller
    -> Update Driver Software
 4. Browse my computer for device software
@@ -15,9 +15,9 @@ To install and test 2-netdev model manually
    -> Install driver anyway
 6. Right click network icon on bottom-left corner
 7. Open network and sharing center
-8. Click one Vf connections -> Property -> Install -> Protocol
+8. Click one of existing connections -> Property -> Install -> Protocol
    -> Add -> Have Disk -> Browse the folder which contains installation files
-   -> Select vioprot630.inf -> OK -> VirtIO Protocol Driver -> OK
+   -> Select vioprot.inf -> OK -> VirtIO Protocol Driver -> OK
 9. Reboot VM
 10. Ip link set tap device down to disable VirtIO connection
 11. Disable VF in Device manager and enable VirtIO connection through ip link
