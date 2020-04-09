@@ -113,6 +113,7 @@ INT CNotifyObject::CheckProtocolandDevInf(INetCfgBindingPath *pNetCfgBindingPath
     LPWSTR                          pszwLowInfId;
     LPWSTR                          pszwUpInfId;
     INT                             iRet = 0;
+    INT                             i, nArraySize;
 
     TraceMsg(L"-->CNotifyObject::%s bRet %d.\n", __FUNCTION__, iRet);
 
@@ -136,12 +137,21 @@ INT CNotifyObject::CheckProtocolandDevInf(INetCfgBindingPath *pNetCfgBindingPath
 
     // Upper is VIO protocol
     if (!_wcsicmp(pszwUpInfId, c_szwKvmProtocol))
-        SET_FLAGS(iRet, VIOPRO);
-    // Lower is VF device miniport
-    if (wcsstr(pszwLowInfId, c_szwIntelNetDevId))
-        SET_FLAGS(iRet, VFDEV);
-    TraceMsg(L" pszwUpInfId  %s and pszwLowInfId %s iRet %d\n",
-             pszwUpInfId, pszwLowInfId, iRet);
+    {
+         SET_FLAGS(iRet, VIOPRO);
+         // Lower is VF device miniport
+         nArraySize = sizeof(c_szwVFNetDevId) / sizeof(c_szwVFNetDevId[0]);
+         for (i = 0; i < nArraySize; i++)
+         {
+             if (wcsstr(pszwLowInfId, c_szwVFNetDevId[i]))
+             {
+                 SET_FLAGS(iRet, VFDEV);
+                 break;
+             }
+         }
+         TraceMsg(L" pszwUpInfId  %s and pszwLowInfId %s iRet %d\n",
+                  pszwUpInfId, pszwLowInfId, iRet);
+    }
 
     CoTaskMemFree(pszwLowInfId);
 end1:

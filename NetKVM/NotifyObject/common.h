@@ -21,7 +21,15 @@
  * migration. New device IDs will be added in future to support VFs
  * from other vendors.
  */
-const WCHAR c_szwIntelNetDevId[] = L"ven_8086&dev_1515";
+const WCHAR c_szwVFNetDevId[][18] = {L"ven_8086&dev_1515",
+                                     //Intel X540 Virtual Function
+                                     L"ven_8086&dev_10ca",
+                                     //Intel 82576 Virtual Function
+                                     L"ven_8086&dev_15a8",
+                                     //Intel Ethernet Connection X552
+                                     L"ven_15b3&dev_101a"
+                                     //Mellanox MT28800 Family
+                                    };
 
 // PnP ID, also referred to as Hardware ID, of the protocol interface.
 const WCHAR c_szwKvmProtocol[] = L"vioprot";

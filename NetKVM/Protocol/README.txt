@@ -40,9 +40,15 @@ could be verified by pinging outside from VM)
 
 TODO
 1. Add support for WinXP and Win2003
-2. Current notify object only binds Intel VF(device ID 0x1515) in 1 to 1 mode,
-   To support VFs from other venders, their VF device ID need to be added into
-   the array.
+2. Current notify object supports multiple VF device IDs, check following,
+   "ven_8086&dev_1515"   Intel X540 Virtual Function
+   "ven_8086&dev_10ca"   Intel 82576 Virtual Function
+   "ven_8086&dev_15a8"   Intel Ethernet Connection X552
+   "ven_15b3&dev_101a"   Mellanox MT28800 Family
+   To support more VFs of various vendors, their VF device ID need to be added
+   into the array. When this array become pretty big and consumes lots of memory,
+   this array should be replaced by a file in which all supported device IDs are
+   recorded, and a proper search algorithm is needed if the file is huge.
 3. Implement new installer feature to support install/update/uninstall protocol
    driver and notify object.
 4. Test performance and latency of VF in this 2-netdev model in 1G/10G/40G/100G
@@ -68,7 +74,9 @@ TODO
 9. Verify network packets statistics of VF in 2-netdev model.
 10.Implement queue mechanism for both Tx and Rx? This protocol driver is different
    from the normal protocol driver, whether supporting queue is to be investigated.
-11.Deal with remaining data for NetKVM DPC routine after switching from VirtIO to VF.
+11.Deal with flying network data in NetKVM DPC routine when switching between VirtIO
+   and VF, and this requires synchronization between the VirtIO driver and the protocol
+   driver(VF driver).
 
 
 History
