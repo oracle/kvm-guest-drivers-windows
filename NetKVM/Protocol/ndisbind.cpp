@@ -619,12 +619,12 @@ ndisprotShutdownBinding(
             NPROT_SET_FLAGS(pOpenContext->Flags,
                             NPROTO_BIND_FLAGS, NPROTO_BIND_IDLE);
             NPROT_SET_FLAGS(pOpenContext->Flags, NPROTO_UNBIND_FLAGS, 0);
+            pOpenContext->BindingHandle = NULL;
             NPROT_RELEASE_LOCK(&pOpenContext->Lock, FALSE);
 
             if (pContext)
             {
                 NdisAcquireSpinLock(&pContext->BindingLock);
-                pOpenContext->BindingHandle = NULL;
                 pContext->BindingHandle = NULL;
                 NdisReleaseSpinLock(&pContext->BindingLock);
                 ParaNdis_SendGratuitousArpPacket(pContext);
