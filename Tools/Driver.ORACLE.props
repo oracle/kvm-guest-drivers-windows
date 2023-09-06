@@ -1,0 +1,69 @@
+<!--
+***********************************************************************************************
+Driver.ORACLE.props
+ORACLE inf substitutions and versioning used by all drivers.
+***********************************************************************************************
+-->
+
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" TreatAsLocalProperty="Platform">
+  <PropertyGroup>
+    <!-- Second component of driver version -->
+    <_ORACLE_RELEASE_VERSION_ Condition="'$(_ORACLE_RELEASE_VERSION_)' == ''">2</_ORACLE_RELEASE_VERSION_>
+    <!-- Third component of driver version -->
+    <_BUILD_MAJOR_VERSION_ Condition="'$(_BUILD_MAJOR_VERSION_)' == ''">1</_BUILD_MAJOR_VERSION_>
+    <!-- Fourth component of driver version -->
+    <_BUILD_MINOR_VERSION_ Condition="'$(_BUILD_MINOR_VERSION_)' == ''">0</_BUILD_MINOR_VERSION_>
+    <!-- Oracle Subsystem Vendor ID definition -->
+    <SUBSYSTEM_VENDOR_ID>108E</SUBSYSTEM_VENDOR_ID>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <STAMPINF_VERSION>$(_ORACLE_RELEASE_VERSION_).$(_BUILD_MAJOR_VERSION_).$(_BUILD_MINOR_VERSION_).$(_NT_TARGET_MAJ)</STAMPINF_VERSION>
+    <!-- CopyrightStrings should be defined in each project -->
+    <RHEL_COPYRIGHT_STARTING_YEAR Condition="'$(CopyrightStrings)' == 'BalloonCopyrightStrings'">2009</RHEL_COPYRIGHT_STARTING_YEAR>
+    <RHEL_COPYRIGHT_STARTING_YEAR Condition="'$(CopyrightStrings)' == 'PVPanicCopyrightStrings'">2015</RHEL_COPYRIGHT_STARTING_YEAR>
+    <RHEL_COPYRIGHT_STARTING_YEAR Condition="'$(CopyrightStrings)' == 'VioInputCopyrightStrings'">2016</RHEL_COPYRIGHT_STARTING_YEAR>
+    <RHEL_COPYRIGHT_STARTING_YEAR Condition="'$(CopyrightStrings)' == 'VioRNGCopyrightStrings'">2014</RHEL_COPYRIGHT_STARTING_YEAR>
+    <RHEL_COPYRIGHT_STARTING_YEAR Condition="'$(CopyrightStrings)' == 'VioScsiCopyrightStrings'">2012</RHEL_COPYRIGHT_STARTING_YEAR>
+    <RHEL_COPYRIGHT_STARTING_YEAR Condition="'$(CopyrightStrings)' == 'VioSerialCopyrightStrings'">2010</RHEL_COPYRIGHT_STARTING_YEAR>
+    <RHEL_COPYRIGHT_STARTING_YEAR Condition="'$(CopyrightStrings)' == 'VioStorCopyrightStrings'">2008</RHEL_COPYRIGHT_STARTING_YEAR>
+    <RHEL_COPYRIGHT_STARTING_YEAR Condition="'$(RHEL_COPYRIGHT_STARTING_YEAR)' == ''">20??</RHEL_COPYRIGHT_STARTING_YEAR>
+    <ORACLE_COPYRIGHT_STARTING_YEAR>2017</ORACLE_COPYRIGHT_STARTING_YEAR>
+
+    <!-- ORACLE uses a user-mode service to collect memory statistics -->
+    <USE_BALLOON_SERVICE>1</USE_BALLOON_SERVICE>
+  </PropertyGroup>
+
+  <!-- Version specs for C preprocessor, resource compiler, and stampinf -->
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>_BUILD_MAJOR_VERSION_=$(_BUILD_MAJOR_VERSION_);_BUILD_MINOR_VERSION_=$(_BUILD_MINOR_VERSION_);_NT_TARGET_MAJ=$(_NT_TARGET_MAJ);_ORACLE_RELEASE_VERSION_=$(_ORACLE_RELEASE_VERSION_);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>RHEL_COPYRIGHT_STARTING_YEAR=$(RHEL_COPYRIGHT_STARTING_YEAR);ORACLE_COPYRIGHT_STARTING_YEAR=$(ORACLE_COPYRIGHT_STARTING_YEAR);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>_BUILD_MAJOR_VERSION_=$(_BUILD_MAJOR_VERSION_);_BUILD_MINOR_VERSION_=$(_BUILD_MINOR_VERSION_);_NT_TARGET_MAJ=$(_NT_TARGET_MAJ);_ORACLE_RELEASE_VERSION_=$(_ORACLE_RELEASE_VERSION_);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>RHEL_COPYRIGHT_STARTING_YEAR=$(RHEL_COPYRIGHT_STARTING_YEAR);ORACLE_COPYRIGHT_STARTING_YEAR=$(ORACLE_COPYRIGHT_STARTING_YEAR);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <Substitution Include="INX_COPYRIGHT_1">
+      <ReplaceWith>Copyright (C) $(RHEL_COPYRIGHT_STARTING_YEAR)-$(COPYRIGHT_CURRENT_YEAR) Red Hat Inc., Copyright (C) $(ORACLE_COPYRIGHT_STARTING_YEAR), Oracle and/or its affiliates. All rights reserved.</ReplaceWith>
+    </Substitution>
+    <Substitution Include="INX_COPYRIGHT_2">
+      <ReplaceWith></ReplaceWith>
+    </Substitution>
+    <Substitution Include="INX_COMPANY">
+      <ReplaceWith>Oracle, Inc.</ReplaceWith>
+    </Substitution>
+    <Substitution Include="INX_PREFIX_VENDOR">
+      <ReplaceWith>Oracle </ReplaceWith>
+    </Substitution>
+    <Substitution Include="INX_PREFIX_VIRTIO">
+      <ReplaceWith>Oracle </ReplaceWith>
+    </Substitution>
+    <Substitution Include="INX_PREFIX_QEMU">
+      <ReplaceWith></ReplaceWith>
+    </Substitution>
+  </ItemGroup>
+</Project>
